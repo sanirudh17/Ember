@@ -1,0 +1,71 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Ember",
+  "version": "1.0.0",
+  "identifier": "com.ember.keepawake",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Ember",
+        "width": 1160,
+        "height": 740,
+        "minWidth": 760,
+        "minHeight": 520,
+        "resizable": true,
+        "maximizable": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true,
+        "visible": true,
+        "center": true,
+        "dragDropEnabled": false,
+        "skipTaskbar": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "category": "Utility",
+    "publisher": "Ember",
+    "copyright": "Ember",
+    "shortDescription": "Keeps your PC awake while coding agents work.",
+    "longDescription": "Ember keeps a Windows PC awake exactly while your coding agents are working, holds the lid-close action only as long as it must, and puts everything back the moment it is done.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "languages": ["English"]
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU5RjkxMDdDNTBFREUyMjEKUldRaDR1MVFmQkQ1NlZMcjM5aXRKdjh5M2g5SVh4bWRDNXd3MWRadHNveWlJRUVxNXZQc1JKNTgK",
+      "endpoints": [
+        "https://github.com/sanirudh17/Ember/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

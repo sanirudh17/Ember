@@ -1,0 +1,21 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+src-tauri/target
+src-tauri/gen
+*.log
+.vite
+screenshots
+test-results
+playwright-report
+
+# Design-skill scratch output (regenerated locally by tooling)
+.taste-skill/
+
+
+# Scratch capture files from local dev runs
+src-tauri/clippy-out.txt
+src-tauri/test-out.txt
+

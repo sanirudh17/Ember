@@ -1,0 +1,1461 @@
+/**
+ * Ember — "The quiet instrument". Glass morphism edition.
+ *
+ * One ground, one ink, one accent. Surfaces are translucent glass — flat
+ * rgba fills separated by tone and a 1px glass edge (drawn on
+ * pseudo-elements so large cards never carry real borders). Rounded
+ * corners throughout: 14px cards, 10px controls, pill tracks. Exactly one
+ * backdrop-filter lives in the app: the floating topbar. The accent
+ * appears twice: the ember mark and the single primary action.
+ *
+ * Light: white ground, navy ink, tangerine accent.
+ * Dark:  near-black ground, soft light ink, same tangerine.
+ * The readout block is the one shadowed, glowing card on each screen.
+ */
+
+/* ------------------------------------------------------------------ */
+/* Typeface — Archivo (variable, latin)                                */
+/* ------------------------------------------------------------------ */
+
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("../assets/fonts/Archivo-400.woff2") format("woff2");
+}
+
+/* ------------------------------------------------------------------ */
+/* Tokens                                                              */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --font: "Archivo", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace; /* taste-skill-ignore — literal code/diff blocks only */
+
+  /* Five sizes do all the work. */
+  --fs-display: clamp(2.5rem, 1rem + 4.8vw, 4.5rem);
+  --fs-title: 1.75rem;   /* 28 — page titles */
+  --fs-lead: 1.25rem;    /* 20 — section headings */
+  --fs-body: 1.0625rem;  /* 17 — running text */
+  --fs-small: 0.875rem;  /* 14 — meta, labels, controls */
+
+  /* One pair of margins, one axis, used everywhere. */
+  --axis: clamp(48px, 22vw, 384px);
+  --edge: 40px;
+  --gap-top: clamp(56px, 16svh, 176px);
+  --gap-section: clamp(72px, 12svh, 132px);
+
+  /* One corner decision, made once: soft glass. Controls round tighter. */
+  --radius: 14px;
+  --radius-sm: 10px;
+  --radius-pill: 999px;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.76, 0, 0.24, 1);
+  --ease-soft: cubic-bezier(0.33, 1, 0.68, 1);
+  --t-press: 140ms;
+  --t-hover: 180ms;
+  --t-ui: 240ms;
+  --t-reveal: 800ms;
+
+  color-scheme: dark;
+}
+
+:root,
+:root[data-theme="dark"] {
+  --bg: #05070a;
+  --surface: #10141c;
+  --hover: #161b26;
+  --ink: #eef1f7;
+  --muted: #a4aec2;
+  --accent: #f7941d;
+  --accent-ink: #1f2b4d;
+  --accent-strong: #e8861a;
+  --track: #262c3a;
+  --scrim: rgba(2, 4, 7, 0.62);
+  --glass: rgba(255, 255, 255, 0.045);
+  --glass-strong: rgba(255, 255, 255, 0.085);
+  --glass-edge: rgba(255, 255, 255, 0.11);
+  --glass-solid: rgba(13, 17, 26, 0.92);
+  --topbar-bg: rgba(8, 11, 17, 0.6);
+  --glass-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+  --shadow-dialog: 0 18px 60px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --surface: #f4f4f2;
+  --hover: #ebebe8;
+  --ink: #1f2b4d;
+  --muted: #47505f;
+  --accent: #f7941d;
+  --accent-ink: #1f2b4d;
+  --accent-strong: #e8861a;
+  --track: #d8dbe2;
+  --scrim: rgba(31, 43, 77, 0.3);
+  --glass: rgba(255, 255, 255, 0.5);
+  --glass-strong: rgba(255, 255, 255, 0.75);
+  --glass-edge: rgba(28, 38, 66, 0.12);
+  --glass-solid: rgba(255, 255, 255, 0.94);
+  --topbar-bg: rgba(255, 255, 255, 0.6);
+  --glass-shadow: 0 18px 48px rgba(28, 38, 66, 0.12);
+  --shadow-dialog: 0 18px 60px rgba(31, 43, 77, 0.28), 0 2px 10px rgba(31, 43, 77, 0.16);
+  color-scheme: light;
+}
+
+/* ------------------------------------------------------------------ */
+/* Reset and base                                                      */
+/* ------------------------------------------------------------------ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+img {
+  display: block;
+}
+
+/* Scrollbars follow the ink, quietly. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ink) 24%, transparent);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ink) 24%, transparent) transparent;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Shell: window frame, top bar, content                               */
+/* ------------------------------------------------------------------ */
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.resize-frame {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 90;
+}
+
+.resize-handle {
+  position: absolute;
+  pointer-events: auto;
+}
+
+.resize-handle--n { top: 0; left: 10px; right: 10px; height: 5px; cursor: ns-resize; }
+.resize-handle--s { bottom: 0; left: 10px; right: 10px; height: 5px; cursor: ns-resize; }
+.resize-handle--e { right: 0; top: 10px; bottom: 10px; width: 5px; cursor: ew-resize; }
+.resize-handle--w { left: 0; top: 10px; bottom: 10px; width: 5px; cursor: ew-resize; }
+.resize-handle--ne { top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+.resize-handle--nw { top: 0; left: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+.resize-handle--se { bottom: 0; right: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+.resize-handle--sw { bottom: 0; left: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+
+.topbar {
+  position: relative;
+  height: 44px;
+  margin: 8px 8px 0;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding-left: var(--axis);
+  padding-right: 6px;
+  gap: 0;
+  background: var(--topbar-bg);
+  border-radius: var(--radius);
+  backdrop-filter: blur(18px) saturate(1.15); /* taste-skill-ignore — user-directed glass morphism */
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+}
+
+/* The 1px glass edge lives on a pseudo-element, not a real border. */
+.topbar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--glass-edge);
+  pointer-events: none;
+}
+
+.topbar__lead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.topbar__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: background-color 500ms ease;
+  flex: none;
+}
+
+.topbar__dot.is-awake {
+  background: var(--accent);
+}
+
+.topbar__name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.topbar__spacer {
+  flex: 1;
+}
+
+.topbar__nav {
+  display: flex;
+  gap: 2px;
+  margin-right: 14px;
+}
+
+.navlink {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 7px 12px;
+  font-family: var(--font);
+  font-size: var(--fs-small);
+  font-weight: 400;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color var(--t-hover) ease, background-color var(--t-hover) ease;
+}
+
+.navlink:hover {
+  color: var(--ink);
+}
+
+.navlink.is-active {
+  background: var(--glass-strong);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.tb-btn {
+  width: 42px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color var(--t-hover) ease, color var(--t-hover) ease;
+}
+
+.tb-btn:hover {
+  background: var(--glass-strong);
+  color: var(--ink);
+}
+
+.tb-btn--close:hover {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+/* A quiet "update available" nudge; it navigates to Settings. */
+.tb-update {
+  height: 24px;
+  margin-right: 8px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background-color var(--t-hover) ease, border-color var(--t-hover) ease;
+}
+
+.tb-update:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: var(--accent);
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+/* ------------------------------------------------------------------ */
+/* Page frame                                                          */
+/* ------------------------------------------------------------------ */
+
+.page {
+  padding-left: var(--axis);
+  padding-right: var(--edge);
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.col {
+  width: min(560px, 100%);
+}
+
+.wide {
+  width: min(900px, 100%);
+}
+
+.section {
+  margin-top: var(--gap-section);
+}
+
+.section--first {
+  margin-top: var(--gap-top);
+}
+
+/* Full-bleed tone band: a section that runs edge to edge on a raised
+   ground, its content still aligned to the page axis. */
+.band {
+  background: var(--surface);
+  margin-left: calc(-1 * var(--axis));
+  margin-right: calc(-1 * var(--edge));
+  padding: 34px var(--edge) 34px var(--axis);
+}
+
+.h1 {
+  margin: 0;
+  font-size: var(--fs-display);
+  font-weight: 400;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.h2 {
+  margin: 0;
+  font-size: clamp(1.5rem, 1.2rem + 1vw, 2rem);
+  font-weight: 400;
+  line-height: 1.25;
+}
+
+.sub {
+  margin: 20px 0 0;
+  font-size: var(--fs-body);
+  line-height: 1.55;
+  color: var(--ink);
+  max-width: 62ch;
+}
+
+.meta {
+  margin: 8px 0 0;
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+
+/* A section heading and the description line under it: a little more air,
+   here and in every section built the same way. */
+.h2 + .meta {
+  margin-top: 12px;
+}
+
+/* A rows block that follows a description (the update card): give it the
+   same rhythm the facts sections already use. */
+.meta + .rows {
+  margin-top: 24px;
+}
+
+.pagehead {
+  margin-top: var(--gap-top);
+}
+
+/* ------------------------------------------------------------------ */
+/* The state (the one large thing)                                     */
+/* ------------------------------------------------------------------ */
+
+.state {
+  margin-top: var(--gap-top);
+}
+
+.state__line {
+  margin: 0;
+  font-size: var(--fs-display);
+  font-weight: 400;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.line {
+  display: block;
+  overflow: hidden;
+  padding-bottom: 0.08em;
+  margin-bottom: -0.08em;
+}
+
+.line > span {
+  display: block;
+}
+
+.state__sub {
+  margin: 20px 0 0;
+  font-size: var(--fs-body);
+  line-height: 1.55;
+  color: var(--ink);
+  max-width: 44ch;
+}
+
+/* ------------------------------------------------------------------ */
+/* Actions                                                             */
+/* ------------------------------------------------------------------ */
+
+.actions {
+  margin-top: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.actions__label {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.actions__count {
+  font-size: var(--fs-small);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Buttons                                                             */
+/* ------------------------------------------------------------------ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  letter-spacing: 0;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--t-hover) ease, color var(--t-hover) ease,
+    transform var(--t-press) var(--ease-out);
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn--primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 1px solid var(--glass-edge);
+}
+
+.btn--primary:hover {
+  background: var(--accent-strong);
+}
+
+.btn--primary:focus-visible {
+  outline-color: var(--ink);
+}
+
+.btn--quiet {
+  background: var(--glass);
+  color: var(--ink);
+  border: 1px solid var(--glass-edge);
+}
+
+.btn--quiet:hover {
+  background: var(--glass-strong);
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--muted);
+  padding: 0 10px;
+}
+
+.btn--ghost:hover {
+  color: var(--ink);
+}
+
+.btn--sm {
+  height: 30px;
+  padding: 0 12px;
+}
+
+.btn:disabled {
+  cursor: default;
+  background: var(--glass);
+  color: var(--muted);
+  border-color: transparent;
+}
+
+.btn:disabled:active {
+  transform: none;
+}
+
+/* Inputs (dialog number / time fields). Small control: a real 1px edge. */
+.input {
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-sm);
+  height: 34px;
+  padding: 0 12px;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-body);
+  outline: none;
+  width: 130px;
+  transition: border-color var(--t-hover) ease;
+}
+
+.input:focus-visible {
+  border-color: var(--ink);
+}
+
+.input:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+input[type="time"].input {
+  width: 150px;
+}
+
+/* Text links: underline appears under the hand. */.tlink {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-family: var(--font);
+  font-size: inherit;
+  font-weight: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.2em;
+  text-decoration-thickness: 0.07em;
+  transition: text-decoration-color var(--t-hover) ease, color var(--t-hover) ease;
+}
+
+.tlink:hover {
+  text-decoration-color: currentColor;
+}
+
+/* ------------------------------------------------------------------ */
+/* Switch (its own convention: 44 x 24 pill)                           */
+/* ------------------------------------------------------------------ */
+
+.switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--glass-edge);
+  border-radius: 999px;
+  background: var(--glass);
+  cursor: pointer;
+  transition: background-color var(--t-ui) ease, border-color var(--t-ui) ease;
+}
+
+.switch.is-on {
+  background: var(--ink);
+  border-color: transparent;
+}
+
+.switch:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.switch__thumb {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transform: translateY(-50%);
+  transition: transform var(--t-ui) var(--ease-out);
+}
+
+.switch.is-on .switch__thumb {
+  transform: translateY(-50%) translateX(20px);
+  background: var(--bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch__thumb {
+    transition: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Segmented control (three plain choices)                             */
+/* ------------------------------------------------------------------ */
+
+.seg {
+  display: inline-flex;
+  gap: 6px;
+  position: relative;
+  padding: 3px;
+  background: var(--glass);
+  border-radius: var(--radius-pill);
+}
+
+/* The 1px glass edge lives on a pseudo-element, not a real border. */
+.seg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--glass-edge);
+  pointer-events: none;
+}
+
+.seg__btn {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: var(--fs-small);
+  font-weight: 400;
+  cursor: pointer;
+  transition: background-color var(--t-hover) ease, color var(--t-hover) ease;
+}
+
+.seg__btn:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+
+.seg__btn.is-active {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+/* ------------------------------------------------------------------ */
+/* Control rows (panel) and panel                                      */
+/* ------------------------------------------------------------------ */
+
+.panel {
+  position: relative;
+  background: var(--glass);
+  border-radius: var(--radius);
+  padding: 4px 22px;
+}
+
+/* The 1px glass edge lives on a pseudo-element, not a real border. */
+.panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--glass-edge);
+  pointer-events: none;
+}
+
+.ctrl {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 16px 0;
+}
+
+.ctrl__label {
+  font-size: var(--fs-body);
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.ctrl__hint {
+  margin-top: 3px;
+  font-size: var(--fs-body);
+  color: var(--muted);
+  line-height: 1.45;
+  max-width: 52ch;
+}
+
+/* ------------------------------------------------------------------ */
+/* The inverted field: instrument readouts                             */
+/* ------------------------------------------------------------------ */
+
+.field {
+  position: relative;
+  background: var(--glass);
+  color: var(--ink);
+  border-radius: var(--radius);
+  padding: 24px 26px;
+  box-shadow: var(--glass-shadow); /* taste-skill-ignore — user-directed glass morphism (data-ui exempt) */
+}
+
+/* The 1px glass edge lives on a pseudo-element, not a real border. */
+.field::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--glass-edge);
+  pointer-events: none;
+}
+
+.field__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px 36px;
+}
+
+.readout__k {
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+
+.readout__v {
+  margin-top: 5px;
+  font-size: var(--fs-lead);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tables (rows told apart by tone, never by lines)                    */
+/* ------------------------------------------------------------------ */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 22px;
+}
+
+.table th {
+  text-align: left;
+  font-size: var(--fs-small);
+  font-weight: 400;
+  color: var(--muted);
+  padding: 0 16px 14px;
+}
+
+.table td {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  padding: 15px 16px;
+  vertical-align: middle;
+}
+
+.table tbody tr.row--working {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.table td:first-child {
+  font-size: var(--fs-body);
+  color: var(--ink);
+}
+
+.table .num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.agent-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.agent-cell__name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Marks drawn in `currentColor` arrive black inside an <img>; flip them
+   for the dark theme so they read at text size. */
+:root[data-theme="dark"] .agent-icon--mono {
+  filter: invert(1);
+}
+
+/* Working / idle dot: solid ember glow for working, hollow ring for idle. */
+.sdot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); /* taste-skill-ignore — 7px state dot glow, well under the meter's size floor */
+  margin-right: 8px;
+  vertical-align: 2px;
+}
+
+.sdot--idle {
+  background: transparent;
+  border: 1.5px solid var(--muted);
+  box-shadow: none; /* taste-skill-ignore — reset so the idle ring stays flat */
+}
+
+.table tbody tr.row--working .state-label {
+  color: var(--ink);
+}
+
+.empty-line {
+  margin: 22px 0 0;
+  font-size: var(--fs-body);
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* Settings rows and facts                                             */
+/* ------------------------------------------------------------------ */
+
+.rows {
+  display: grid;
+  gap: 2px;
+}
+
+.srow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  background: var(--glass);
+  border-radius: var(--radius-sm);
+  padding: 17px 22px;
+}
+
+/* The 1px glass edge lives on a pseudo-element, not a real border. */
+.srow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--glass-edge);
+  pointer-events: none;
+}
+
+.srow__label {
+  font-size: var(--fs-body);
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.srow__hint {
+  margin-top: 6px;
+  font-size: var(--fs-body);
+  color: var(--muted);
+  line-height: 1.45;
+  max-width: 52ch;
+}
+
+.srow__control {
+  flex: none;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 36px;
+  margin-top: 26px;
+}
+
+.fact__k {
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+
+.fact__v {
+  margin-top: 6px;
+  font-size: var(--fs-body);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.fact__note {
+  margin-top: 6px;
+  font-size: var(--fs-body);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.log {
+  position: relative;
+  margin-top: 22px;
+  background: var(--glass);
+  border-radius: var(--radius-sm);
+  padding: 16px 18px;
+  width: min(900px, 100%);
+  max-height: 224px;
+  overflow-y: auto;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+/* The 1px glass edge lives on a pseudo-element, not a real border. */
+.log::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--glass-edge);
+  pointer-events: none;
+}
+
+.log__line {
+  display: flex;
+  gap: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log__t {
+  color: var(--muted);
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.log__m {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ------------------------------------------------------------------ */
+/* Footer (a single quiet line)                                        */
+/* ------------------------------------------------------------------ */
+
+.pagefoot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  padding-top: clamp(64px, 12svh, 132px);
+  padding-bottom: 28px;
+  margin-top: auto;
+  font-size: var(--fs-body);
+  color: var(--muted);
+}
+
+.pagefoot__links {
+  display: flex;
+  gap: 22px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Dialog and scrim                                                    */
+/* ------------------------------------------------------------------ */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--scrim);
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+
+.dialog {
+  width: min(680px, 100%);
+  max-height: min(640px, 90vh);
+  overflow-y: auto;
+  background: var(--glass-solid);
+  box-shadow: var(--shadow-dialog); /* taste-skill-ignore — real overlay, per the skill's own rule */
+  border-radius: var(--radius);
+  padding: 26px 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dialog__title {
+  margin: 0;
+  font-size: var(--fs-lead);
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+/* A segmented toggle reads as a control, not a tab bar: keep it compact. */
+.dialog .seg {
+  align-self: flex-start;
+}
+
+.dialog__text {
+  margin: 0;
+  font-size: var(--fs-body);
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.dialog__text strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.code {
+  position: relative;
+  background: var(--glass);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  overflow: auto;
+  max-height: 300px;
+  margin: 0;
+  white-space: pre;
+  color: var(--ink);
+}
+
+/* The 1px glass edge lives on a pseudo-element, not a real border. */
+.code::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--glass-edge);
+  pointer-events: none;
+}
+
+.diff {
+  position: relative;
+  font-family: var(--font-mono); /* taste-skill-ignore — a unified diff is literal code */
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  background: var(--glass);
+  border-radius: var(--radius-sm);
+  padding: 8px 0;
+  overflow: auto;
+  max-height: 300px;
+}
+
+/* The 1px glass edge lives on a pseudo-element, not a real border. */
+.diff::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--glass-edge);
+  pointer-events: none;
+}
+
+.diff__line {
+  padding: 0 16px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--muted);
+}
+
+.diff__line--add {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--ink);
+}
+
+.diff__line--remove {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Notice, skeleton, fatal                                             */
+/* ------------------------------------------------------------------ */
+
+.notice {
+  position: relative;
+  max-width: 720px;
+  background: var(--glass);
+  border-radius: var(--radius-sm);
+  padding: 18px 20px;
+}
+
+/* The 1px glass edge lives on a pseudo-element, not a real border. */
+.notice::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--glass-edge);
+  pointer-events: none;
+}
+
+.notice__title {
+  font-size: var(--fs-body);
+  color: var(--ink);
+}
+
+.notice__text {
+  margin-top: 6px;
+  font-size: var(--fs-small);
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.notice__action {
+  margin-top: 14px;
+}
+
+.skel {
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+}
+
+.skel--state {
+  height: 56px;
+  width: min(420px, 80%);
+  margin-top: var(--gap-top);
+}
+
+.skel--line {
+  height: 18px;
+  width: min(340px, 70%);
+  margin-top: 22px;
+  border-radius: var(--radius-pill);
+}
+
+.skel--block {
+  height: 96px;
+  width: min(560px, 100%);
+  margin-top: var(--gap-section);
+}
+
+.fatal {
+  margin-top: var(--gap-top);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 640px;
+}
+
+.fatal__title {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.fatal__text {
+  margin: 0;
+  font-size: var(--fs-body);
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+/* ------------------------------------------------------------------ */
+/* Motion                                                              */
+/* ------------------------------------------------------------------ */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Section entrance: parts arrive in reading order, once. */
+  .js [data-rise] {
+    opacity: 0;
+    transform: translateY(18px);
+    animation: rise var(--t-reveal) var(--ease-out) forwards;
+    animation-delay: calc(min(var(--i, 0), 7) * 90ms + 60ms);
+  }
+
+  /* Signature: the state line rises from behind its own baseline. */
+  .js .state__line .line > span {
+    transform: translateY(105%);
+    animation: line-up 900ms var(--ease-out) forwards;
+    animation-delay: calc(var(--i) * 110ms + 150ms);
+  }
+
+  /* Reveal on scroll, once, for the lower sections. */
+  .js [data-reveal] {
+    opacity: 0;
+    transform: translateY(22px);
+    transition: opacity 650ms var(--ease-out), transform 800ms var(--ease-out);
+  }
+
+  .js [data-reveal].is-in {
+    opacity: 1;
+    transform: none;
+  }
+
+  .dialog {
+    animation: dialog-in 320ms var(--ease-out) both;
+  }
+
+  .scrim {
+    animation: scrim-in 240ms ease both;
+  }
+}
+
+@keyframes rise {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes line-up {
+  to {
+    transform: none;
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Narrow windows (the app stays usable well below its minimum size)   */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 700px) {
+  :root {
+    --axis: 24px;
+    --edge: 24px;
+  }
+
+  .field__grid,
+  .facts {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar__nav {
+    margin-right: 4px;
+  }
+}
+
+@media (max-width: 560px) {
+  .hide-sm {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Wide windows: the dashboard form                                    */
+/* ------------------------------------------------------------------ */
+
+/* A real window, not a page. On wide screens the instrument pairs the
+   state with its readouts on one row, the margins tighten to window
+   scale, and the old centre-column emptiness gives width back to the
+   controls beneath. Same type, same motion — only the proportion
+   changes. */
+@media (min-width: 1040px) {
+  :root {
+    --axis: clamp(48px, 8vw, 132px);
+    --gap-top: clamp(48px, 9svh, 104px);
+    --gap-section: clamp(56px, 9svh, 104px);
+  }
+
+  .page--awake {
+    display: grid;
+    grid-template-columns: minmax(0, 560px) minmax(0, 1fr);
+    grid-template-rows: auto auto auto 1fr;
+    column-gap: clamp(36px, 4vw, 72px);
+    align-items: start;
+  }
+
+  /* Row 1: the state holds the left, the readout field the right.
+     The band steps aside — the glass card stands on its own. */
+  .page--awake > .state {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .page--awake > .band {
+    grid-column: 2;
+    grid-row: 1;
+    margin: var(--gap-top) 0 0;
+    padding: 0;
+    background: none;
+  }
+
+  /* Rows 2–3: the controls and the working list run full width. */
+  .page--awake > .section--ctrls {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .page--awake > .section--working {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+
+  .page--awake > .pagefoot {
+    grid-column: 1 / -1;
+    grid-row: 4;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Small shared odds and ends                                          */
+/* ------------------------------------------------------------------ */
+
+.sechead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.monogram-chip {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  flex: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Browser harness                                                     */
+/* ------------------------------------------------------------------ */
+
+/* Inside Tauri the shell owns scrolling: the document is fixed and
+   `.content` scrolls. Opened as a plain page for design review, the
+   document itself must scroll, so the whole page is reachable and
+   photographable the way a page is. Set by main.tsx from the same
+   check the API bridge uses. */
+html[data-env="browser"],
+html[data-env="browser"] body,
+html[data-env="browser"] #root {
+  height: auto;
+}
+
+html[data-env="browser"] body {
+  overflow: auto;
+  min-height: 100svh;
+}
+
+html[data-env="browser"] .app {
+  height: auto;
+  min-height: 100svh;
+  overflow: visible;
+}
+
+html[data-env="browser"] .content {
+  overflow: visible;
+  flex: 1 0 auto;
+}
+
+html[data-env="browser"] .topbar {
+  /* Review mode: the document scrolls; the glass bar floats above it.
+     Its own fill comes from the base rule — no opaque ground here. */
+  position: sticky;
+  top: 8px;
+  z-index: 40;
+  background: var(--topbar-bg);
+}

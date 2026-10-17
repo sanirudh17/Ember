@@ -1,0 +1,33 @@
+[package]
+name = "ember"
+version = "1.0.0"
+edition = "2024"
+
+[dependencies]
+chrono = "0.4.45"
+dirs = "7.0.0"
+rand = "0.10.3"
+rodio = "0.23.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sysinfo = "0.39.6"
+tauri = { version = "2.12.4", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "2.7.0"
+tauri-plugin-notification = "2.7.0"
+tauri-plugin-single-instance = "2.5.4"
+tauri-plugin-updater = "2.14.0"
+toml_edit = "0.25.17"
+window-vibrancy = "0.8.1"
+windows = { version = "0.62.2", features = ["Wdk_System_Threading", "Win32_Foundation", "Win32_System_Power", "Win32_System_Threading", "Win32_System_SystemServices", "Win32_System_LibraryLoader", "Win32_System_Console", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_Shutdown", "Win32_System_Com", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_Security", "Win32_Storage_FileSystem", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Dwm"] }
+
+[build-dependencies]
+tauri-build = { version = "2.7.3", features = [] }
+
+# Small, fast, stripped release binaries. `lto` + `codegen-units = 1` trade
+# build time for a much smaller installer payload.
+[profile.release]
+lto = true
+opt-level = "s"
+strip = true
+codegen-units = 1
+
