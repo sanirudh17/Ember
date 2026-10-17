@@ -156,7 +156,7 @@ The installer is currently unsigned, so Windows SmartScreen may show *"Windows p
 
 From 1.0.0 onward Ember updates itself. At launch — and every few hours after that — it quietly asks GitHub whether a newer release exists. If one does, a small **Update** pill appears in the top bar; installing verifies the build's signature, swaps it in place and restarts Ember. Your settings, hook installs and history are left alone.
 
-You can also check on demand from **Settings → Updates → Check now**. A check that cannot reach GitHub says so in plain language and changes nothing; when there is nothing newer, Ember says *"You're on the latest version."* While a release is merely a draft on GitHub, installed copies keep seeing the previous one — drafts do not serve `latest.json`.
+You can also check on demand from **Settings → Updates → Check now**. A check that cannot reach GitHub says so in plain language and changes nothing; when there is nothing newer, Ember says *"You're on the latest version."*
 
 ---
 
