@@ -61,9 +61,9 @@ Every single feature of the original Ember application has been retained and ref
 - **Fix Applied**:
   - `ProcessDetector` enforces a 10-second ignore window (`STARTUP_IGNORE_WINDOW`) after engine initialization.
   - Requires at least 2 valid CPU sample passes before any process state is trusted.
-  - Process detection requires 3 consecutive 2-second samples above threshold (`CPU_THRESHOLD = 3.0%`) before marking an agent working.
+  - Process detection accumulates whole-tree CPU energy above a 2% floor (`CPU_FLOOR = 2.0`, any single sample capped at `CPU_SAMPLE_CAP = 4.0`) and only marks an agent working once a full `CPU_ENERGY = 6.0` budget is earned — brief spikes never engage, modest sustained load does.
   - Tighter executable matching with strict exclusions for Ember, Edge WebView2, shells, and multiplexers. `guess_folder` never returns `"bin"`.
-  - Added a 5-second hold visibility gate (`VISIBILITY_HOLD_DELAY`) before firing user-visible notifications, chimes, dot, or title bar changes.
+  - Added a short hold visibility gate (`VISIBILITY_HOLD_DELAY`) before firing user-visible notifications, chimes, dot, or title bar changes.
   - Rolling debug log in `%APPDATA%\Ember\ember.log` with "Copy recent log" in Settings > Diagnostics.
 
 ### Bug B: Mica Reported as Unsupported on Current Windows 11
