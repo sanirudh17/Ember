@@ -83,3 +83,7 @@ Launched the existing debug desktop executable with a local WebView2 debugging p
 The native Vite review now injects a development base URL, so CSS font URLs resolve against localhost rather than the embedded app. Confirmed Archivo loaded as a custom font in the native webview. Added scripts/open-native-dev.mjs to keep this document response available across reloads; it launches only the existing executable and performs no build. Start npm run dev first, then node scripts/open-native-dev.mjs.
 
 The four readings now share one subdued surface with 20px/24px internal spacing. Scrollbars are 3px with 14-percent muted thumb opacity, rising to 32 percent on hover. Normal window defaults increase from 860 to 960 logical pixels wide; height remains 620, and saved placement is respected. Updated source defaults and their test expectation without compiling. Frontend type checking and control smoke checks passed. Native verification confirmed live snapshots, loaded Archivo, and no horizontal overflow.
+
+## Shipped v1.1.0 finish
+
+Default normal geometry is 1100x700 logical pixels, matching the approved window orientation; saved user geometry/maximization remains. The light theme now distinguishes frame, content and summary surfaces more clearly. Dark grounds are slightly deeper while preserving their blue identity. Manual hold has a softened border. Sessions states the open and working counts together. The complete release and actual v1.0.0 upgrade evidence is recorded in RELEASE_1.1.0_VALIDATION.md.
