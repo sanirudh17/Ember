@@ -24,6 +24,7 @@ const DIRECTIONS = ["n", "s", "e", "w", "ne", "nw", "se", "sw"] as const;
 
 function routeFromLocation(): Route {
   const query = new URLSearchParams(window.location.search).get("route");
+
   return (ROUTES as string[]).includes(query ?? "") ? (query as Route) : "awake";
 }
 
@@ -32,6 +33,19 @@ export function App() {
   const [route, setRoute] = useState<Route>(routeFromLocation);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const ready = Boolean(snapshot && settings);
+  const revealed = useRef(false);
+
+  useEffect(() => {
+    if (!IS_TAURI || revealed.current || (!ready && loading)) return;
+    // Two frames let the theme and the initial surface reach the compositor.
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => {
+        void api.showWindow().then(() => { revealed.current = true; });
+      });
+    });
+    return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); };
+  }, [ready, loading]);
 
   // Keep the URL in step so a reload lands on the same screen.
   useEffect(() => {
@@ -78,7 +92,7 @@ export function App() {
             )
           ) : (
             <ErrorBoundary key={route}>
-              {route === "awake" && <HomePage />}
+              {route === "awake" && <HomePage onViewAgents={() => setRoute("agents")} />}
               {route === "agents" && <AgentsPage />}
               {route === "settings" && <SettingsPage />}
             </ErrorBoundary>

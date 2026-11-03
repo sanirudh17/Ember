@@ -128,7 +128,13 @@ impl AgentId {
                 // different, unrelated CLI, so it is deliberately not listed.
                 // `Antigravity.exe` is the Electron desktop/IDE app and sidecar
                 // runtime, not the CLI, so it is deliberately excluded.
-                executables: &["agy.exe", "agy.cmd", "agy"],
+                executables: &[
+                    "agy.exe",
+                    "agy.cmd",
+                    "agy",
+                    "agy_acp_server.exe",
+                    "agy_acp_server",
+                ],
                 cmdline_matchers: &["antigravity", "agy"],
                 config_dir: || dirs::home_dir().map(|h| h.join(".gemini")),
             },
@@ -203,10 +209,10 @@ impl AgentDef {
                 "Global plugin in ~/.config/opencode/plugins/ subscribing to session.created, session.prompt, session.execution.started, session.execution.* (succeeded/failed/interrupted), session.status (busy/retry), and session.deleted."
             }
             AgentId::Pi => {
-                "TypeScript extension in ~/.pi/agent/extensions/ using the pi.on(...) API (session_start, before_agent_start, agent_start, turn_start, tool_call, tool_execution_start, agent_settled, agent_end, session_shutdown)."
+                "TypeScript extension in ~/.pi/agent/extensions/ using the pi.on(...) API (session_start, before_agent_start, agent_start, turn_start, tool_call, tool_execution_start, agent_settled, session_shutdown)."
             }
             AgentId::OhMyPi => {
-                "TypeScript extension in ~/.omp/agent/extensions/ using the pi.on(event, (event, ctx) => ...) API (session_start, before_agent_start, agent_start, tool_call, tool_execution_start, agent_settled, agent_end, session_shutdown)."
+                "TypeScript extension in ~/.omp/agent/extensions/ using the pi.on(event, (event, ctx) => ...) API (session_start, before_agent_start, agent_start, tool_call, tool_execution_start, agent_end, session_shutdown)."
             }
             AgentId::Antigravity => {
                 "Hooks in ~/.gemini/config/hooks.json, keyed by hook name (SessionStart, PreInvocation, PostInvocation, PostToolUse, Stop)."
@@ -257,7 +263,7 @@ pub fn parse_hook_payload(agent: AgentId, raw: &str) -> SessionContext {
     let pid = value
         .get("pid")
         .and_then(|v| v.as_u64())
-        .map(|n| n as u32)
+        .and_then(|n| u32::try_from(n).ok())
         .or_else(|| {
             value
                 .get("pid")

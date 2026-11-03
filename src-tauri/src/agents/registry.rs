@@ -19,29 +19,13 @@ pub const MAX_SESSIONS_PER_AGENT: usize = 50;
 /// the next sample includes it and the session stops being a suspect.
 pub const PID_GRACE: Duration = Duration::from_secs(6);
 
-/// Hook-driven sessions with a live owning process stay in the decision's
-/// grace window this long after their last event. Agents routinely go quiet
-/// for 26–34 s mid-turn (model thinking, network waits) and several of them
-/// fire settle-style events between steps of one run; on a 15 s window that
-/// flaps the hold mid-turn. 90 s is ~2.5× the longest observed in-turn gap,
-/// so a live session never releases while its turn is plausibly running.
-/// Release stays bounded: once the agent truly ends, the hold drops 90 s
-/// after the final event (plus the engine's release floor).
+/// Legacy timing constant retained for compatibility tests; explicit idle
+/// hooks no longer use a live-PID trust window.
 pub const LIVE_PID_IDLE_TRUST: Duration = Duration::from_secs(90);
 
-/// Approximate (process-detected) sessions keep the hold alive this long
-/// after the last sample where their tree was actually classified Working.
-/// The CPU classifier's own `IDLE_HOLD` is tuned to release promptly; the
-/// decision layer adds its own, longer window so that a hookless agent's
-/// think-gap cannot flap the hold. Bounded the same way: quiet for this long
-/// and the row stops counting even while the process is still open.
-pub const APPROX_DWELL: Duration = Duration::from_secs(60);
-
-/// How long a removed session's last event keeps counting toward the flat
-/// grace window. Removal (an `End` hook, or the dead-pid sweep) must not
-/// cancel the grace the session had already earned — otherwise a finished
-/// one-shot task releases the hold the instant its row disappears.
-const ENDED_KEEP: Duration = Duration::from_secs(60);
+/// Short grace for inferred activity only. Explicit idle/end hooks release
+/// without this window; a newly opened session never earns a hold.
+pub const APPROX_DWELL: Duration = Duration::from_secs(4);
 
 /// Hook messages whose timestamp is older than this are treated as replays and
 /// dropped. The comparison is relative to "now", so a system clock correction
@@ -62,6 +46,8 @@ pub enum HookEvent {
     Idle,
     End,
     Heartbeat,
+    Waiting,
+    Resume,
 }
 
 impl HookEvent {
@@ -72,6 +58,8 @@ impl HookEvent {
             "idle" => Some(HookEvent::Idle),
             "end" => Some(HookEvent::End),
             "heartbeat" => Some(HookEvent::Heartbeat),
+            "waiting" => Some(HookEvent::Waiting),
+            "resume" => Some(HookEvent::Resume),
             _ => None,
         }
     }
@@ -83,6 +71,8 @@ impl HookEvent {
             HookEvent::Idle => "idle",
             HookEvent::End => "end",
             HookEvent::Heartbeat => "heartbeat",
+            HookEvent::Waiting => "waiting",
+            HookEvent::Resume => "resume",
         }
     }
 }
@@ -131,17 +121,19 @@ pub enum HookEffect {
     /// A new session row appeared.
     Created(SessionState),
     /// An existing session flipped state.
-    Changed { from: SessionState, to: SessionState },
+    Changed {
+        from: SessionState,
+        to: SessionState,
+    },
     /// An `End` hook removed the session.
     Removed,
 }
 
 pub struct Registry {
     sessions: HashMap<(AgentId, String), Session>,
-    /// Recently removed hook sessions and the last event they had. Keeps the
-    /// grace window alive across a removal (see [`ENDED_KEEP`]).
-    ended: HashMap<(AgentId, String), Instant>,
+    waiting: HashSet<(AgentId, String)>,
     anon: u64,
+    hook_owners: HashMap<(AgentId, u32), Instant>,
 }
 
 impl Default for Registry {
@@ -154,8 +146,9 @@ impl Registry {
     pub fn new() -> Self {
         Registry {
             sessions: HashMap::new(),
-            ended: HashMap::new(),
+            waiting: HashSet::new(),
             anon: 0,
+            hook_owners: HashMap::new(),
         }
     }
 
@@ -207,7 +200,7 @@ impl Registry {
         &self,
         watch: impl Fn(AgentId) -> bool,
         flat: Duration,
-        alive: &HashSet<u32>,
+        _alive: &HashSet<u32>,
         now: Instant,
     ) -> Vec<&Session> {
         if flat.is_zero() {
@@ -216,35 +209,14 @@ impl Registry {
         self.sessions
             .values()
             .filter(|s| {
+                // Only inferred activity needs a quiet window. Start/Idle hooks
+                // are authoritative and must never earn a hold on their own.
                 watch(s.agent)
-                    && if s.approximate {
-                        s.last_working
-                            .is_some_and(|t| now.duration_since(t) < APPROX_DWELL)
-                    } else {
-                        let grace = match s.pid {
-                            Some(pid) if alive.contains(&pid) => {
-                                flat.max(LIVE_PID_IDLE_TRUST)
-                            }
-                            _ => flat,
-                        };
-                        now.duration_since(s.last_event) < grace
-                    }
+                    && s.approximate
+                    && s.last_working
+                        .is_some_and(|t| now.duration_since(t) < flat.min(APPROX_DWELL))
             })
             .collect()
-    }
-
-    /// Removed sessions whose flat grace window is still open (tombstones).
-    pub fn ended_in_grace(
-        &self,
-        watch: impl Fn(AgentId) -> bool,
-        flat: Duration,
-        now: Instant,
-    ) -> bool {
-        !flat.is_zero()
-            && self
-                .ended
-                .iter()
-                .any(|((agent, _), t)| watch(*agent) && now.duration_since(*t) < flat)
     }
 
     /// Apply a hook message. `End` removes the session.
@@ -263,19 +235,6 @@ impl Registry {
 
         let key = (msg.agent, session_id.clone());
 
-        if msg.event == HookEvent::End {
-            if let Some(removed) = self.sessions.remove(&key) {
-                // Tombstone: removal must not cancel the grace the session
-                // had already earned (a dead-pid sweep or a wrapper's `End`
-                // used to release the hold on the very same tick).
-                if !removed.approximate {
-                    self.ended.insert(key, removed.last_event);
-                }
-                return HookEffect::Removed;
-            }
-            return HookEffect::None;
-        }
-
         let now_unix = unix_now();
         // Drop replayed events that are clearly old (for example a plugin
         // flushing yesterday's queue). The comparison is relative to "now"
@@ -285,6 +244,35 @@ impl Registry {
         if msg.ts > 0 && msg.ts < now_unix.saturating_sub(STALE_EVENT_WINDOW) {
             return HookEffect::None;
         }
+
+        if matches!(msg.event, HookEvent::Heartbeat | HookEvent::Resume)
+            && !self.sessions.contains_key(&key)
+        {
+            // Late tool callbacks must not create phantom open sessions after End.
+            return HookEffect::None;
+        }
+        let resume_waiting = msg.event == HookEvent::Resume && self.waiting.remove(&key);
+        match msg.event {
+            HookEvent::Waiting => {
+                self.waiting.insert(key.clone());
+            }
+            HookEvent::Start | HookEvent::Working | HookEvent::Idle | HookEvent::End => {
+                self.waiting.remove(&key);
+            }
+            _ => {}
+        }
+        if let Some(pid) = msg.pid {
+            self.hook_owners.insert((msg.agent, pid), now);
+        }
+
+        if msg.event == HookEvent::End {
+            return if self.sessions.remove(&key).is_some() {
+                HookEffect::Removed
+            } else {
+                HookEffect::None
+            };
+        }
+
         let old_state = self.sessions.get(&key).map(|s| s.state);
         let entry = self.sessions.entry(key).or_insert_with(|| {
             self.anon += 1;
@@ -317,13 +305,21 @@ impl Registry {
         }
 
         let next_state = match msg.event {
-            HookEvent::Start | HookEvent::Idle | HookEvent::End => SessionState::Idle,
-            HookEvent::Working | HookEvent::Heartbeat => SessionState::Working,
+            HookEvent::Start | HookEvent::Idle | HookEvent::End | HookEvent::Waiting => {
+                SessionState::Idle
+            }
+            HookEvent::Working | HookEvent::Heartbeat | HookEvent::Resume => SessionState::Working,
         };
         // A heartbeat proves the agent process is still alive: it rescues a
         // session a previous tick demoted as suspiciously silent (stale), but
         // it never resurrects a session the agent itself idled.
-        let next_state = if msg.event == HookEvent::Heartbeat {
+        let next_state = if msg.event == HookEvent::Resume {
+            if resume_waiting {
+                SessionState::Working
+            } else {
+                entry.state
+            }
+        } else if msg.event == HookEvent::Heartbeat {
             if entry.stale {
                 SessionState::Working
             } else {
@@ -394,6 +390,20 @@ impl Registry {
         let mut seen: HashSet<(AgentId, String)> = HashSet::new();
 
         for det in detections {
+            // Once a live process has reported hooks, CPU must not resurrect
+            // a turn after its authoritative End removed the session row.
+            if self.hook_owners.contains_key(&(det.agent, det.pid)) {
+                for session in self
+                    .sessions
+                    .values_mut()
+                    .filter(|s| s.agent == det.agent && s.pid == Some(det.pid))
+                {
+                    if session.folder == "unknown" && det.folder != "unknown" {
+                        session.folder = det.folder.clone();
+                    }
+                }
+                continue;
+            }
             let session_id = format!("pid:{}", det.pid);
             let key = (det.agent, session_id.clone());
             seen.insert(key.clone());
@@ -496,7 +506,7 @@ impl Registry {
         // only after [`PID_GRACE`]: the process table is sampled every couple
         // of seconds, so "not in the sample" is not yet "dead" for a pid that
         // was just born (see the fresh-hook-pid regression test below).
-        let dead: Vec<(AgentId, String, Instant, bool)> = self
+        let dead: Vec<(AgentId, String)> = self
             .sessions
             .values()
             .filter(|s| {
@@ -504,18 +514,14 @@ impl Registry {
                     .map(|p| !alive.contains(&p) && now.duration_since(s.last_event) >= PID_GRACE)
                     .unwrap_or(false)
             })
-            .map(|s| (s.agent, s.session_id.clone(), s.last_event, s.approximate))
+            .map(|s| (s.agent, s.session_id.clone()))
             .collect();
-        for (agent, session_id, last_event, approximate) in dead {
-            let key = (agent, session_id);
+        for key in dead {
             self.sessions.remove(&key);
-            if !approximate {
-                self.ended.insert(key, last_event);
-            }
         }
-        // A tombstone only matters while its flat grace could still be open.
-        self.ended
-            .retain(|_, t| now.duration_since(*t) < ENDED_KEEP);
+        self.waiting.retain(|key| self.sessions.contains_key(key));
+        self.hook_owners
+            .retain(|(_, pid), seen| alive.contains(pid) || now.duration_since(*seen) < PID_GRACE);
     }
 
     fn enforce_cap(&mut self, agent: AgentId) {
@@ -549,15 +555,8 @@ pub fn unix_now() -> u64 {
         .unwrap_or(0)
 }
 
-/// `any working` widened by the anti-flap grace window.
-///
-/// Two classes of quiet are tolerated beyond `any_working`:
-/// * hook sessions — flat `keep_awake_after`, extended to
-///   [`LIVE_PID_IDLE_TRUST`] while their process is alive (mid-turn think
-///   gaps and step-settle events must not release the hold);
-/// * approximate rows — [`APPROX_DWELL`] after their last Working sample.
-///
-/// Recently removed sessions keep their flat grace via tombstones.
+/// Confirmed work or a short inferred-activity grace on an open process.
+/// Explicit Start/Idle/End hooks never earn or extend grace.
 pub fn any_working_or_in_grace(
     registry: &Registry,
     watch: impl Fn(AgentId) -> bool,
@@ -577,7 +576,7 @@ pub fn any_working_or_in_grace(
     {
         return true;
     }
-    registry.ended_in_grace(&watch, keep_awake_after, now)
+    false
 }
 
 #[cfg(test)]
@@ -597,6 +596,154 @@ mod tests {
 
     fn always(_: AgentId) -> bool {
         true
+    }
+
+    #[test]
+    fn every_agent_waits_resumes_and_stays_stopped_after_cancellation() {
+        for agent in AgentId::ALL {
+            let mut r = Registry::new();
+            let now = Instant::now();
+            r.on_hook(msg(agent, HookEvent::Working, "turn", Some(42)), now);
+            r.on_hook(msg(agent, HookEvent::Waiting, "turn", Some(42)), now);
+            assert!(!any_working_or_in_grace(
+                &r,
+                always,
+                Duration::from_secs(90),
+                &HashSet::from([42]),
+                now
+            ));
+            r.on_hook(msg(agent, HookEvent::Resume, "turn", Some(42)), now);
+            assert_eq!(r.working_count(agent), 1);
+            r.tick(
+                Duration::from_secs(60),
+                &HashSet::from([42]),
+                now + Duration::from_secs(600),
+            );
+            assert_eq!(
+                r.working_count(agent),
+                1,
+                "live reasoning must survive silence"
+            );
+            r.on_hook(
+                msg(agent, HookEvent::Waiting, "turn", Some(42)),
+                now + Duration::from_secs(601),
+            );
+            r.on_hook(
+                msg(agent, HookEvent::Idle, "turn", Some(42)),
+                now + Duration::from_secs(602),
+            );
+            r.on_hook(
+                msg(agent, HookEvent::Resume, "turn", Some(42)),
+                now + Duration::from_secs(603),
+            );
+            r.on_hook(
+                msg(agent, HookEvent::Heartbeat, "turn", Some(42)),
+                now + Duration::from_secs(604),
+            );
+            assert_eq!(
+                r.working_count(agent),
+                0,
+                "late replies must not undo Escape"
+            );
+            r.on_hook(
+                msg(agent, HookEvent::End, "turn", Some(42)),
+                now + Duration::from_secs(605),
+            );
+            r.on_hook(
+                msg(agent, HookEvent::Heartbeat, "turn", Some(42)),
+                now + Duration::from_secs(606),
+            );
+            r.on_hook(
+                msg(agent, HookEvent::Resume, "turn", Some(42)),
+                now + Duration::from_secs(606),
+            );
+            assert!(
+                r.is_empty(),
+                "late callbacks must not recreate a closed session"
+            );
+        }
+    }
+
+    #[test]
+    fn waiting_and_ending_one_session_does_not_stop_another() {
+        for agent in AgentId::ALL {
+            let mut r = Registry::new();
+            let now = Instant::now();
+            r.on_hook(msg(agent, HookEvent::Working, "one", Some(42)), now);
+            r.on_hook(msg(agent, HookEvent::Working, "two", Some(42)), now);
+            r.on_hook(msg(agent, HookEvent::Waiting, "one", Some(42)), now);
+            assert_eq!(r.working_count(agent), 1);
+            r.on_hook(msg(agent, HookEvent::End, "one", Some(42)), now);
+            assert_eq!(r.working_count(agent), 1);
+            r.tick(
+                Duration::from_secs(60),
+                &HashSet::new(),
+                now + PID_GRACE + Duration::from_secs(1),
+            );
+            assert!(r.is_empty(), "closed processes must be reaped");
+        }
+    }
+
+    #[test]
+    fn late_tool_completion_cannot_resurrect_an_interrupted_turn() {
+        for agent in AgentId::ALL {
+            let mut registry = Registry::new();
+            let now = Instant::now();
+            registry.on_hook(msg(agent, HookEvent::Working, "turn", None), now);
+            registry.on_hook(msg(agent, HookEvent::Idle, "turn", None), now);
+            registry.on_hook(
+                msg(agent, HookEvent::Heartbeat, "turn", None),
+                now + Duration::from_secs(1),
+            );
+            assert_eq!(registry.working_count(agent), 0);
+        }
+    }
+
+    #[test]
+    fn cpu_cannot_resurrect_a_hook_completed_process() {
+        let mut r = Registry::new();
+        let now = Instant::now();
+        for agent in AgentId::ALL {
+            r.on_hook(msg(agent, HookEvent::Working, "done", Some(42)), now);
+            r.on_hook(msg(agent, HookEvent::End, "done", Some(42)), now);
+            r.on_process(
+                &[ProcessDetection {
+                    agent,
+                    pid: 42,
+                    folder: "test".into(),
+                    working: true,
+                }],
+                now,
+            );
+            assert_eq!(r.working_count(agent), 0);
+        }
+    }
+
+    #[test]
+    fn opening_each_agent_never_holds_the_pc() {
+        for agent in AgentId::ALL {
+            let mut r = Registry::new();
+            let now = Instant::now();
+            r.on_hook(msg(agent, HookEvent::Start, "new", Some(42)), now);
+            assert!(!any_working_or_in_grace(
+                &r,
+                always,
+                Duration::from_secs(15),
+                &HashSet::from([42]),
+                now
+            ));
+        }
+    }
+
+    #[test]
+    fn stale_end_cannot_remove_current_work() {
+        let mut r = Registry::new();
+        let now = Instant::now();
+        r.on_hook(msg(AgentId::Codex, HookEvent::Working, "x", None), now);
+        let mut old = msg(AgentId::Codex, HookEvent::End, "x", None);
+        old.ts = 1;
+        r.on_hook(old, now);
+        assert_eq!(r.working_count(AgentId::Codex), 1);
     }
 
     #[test]
@@ -750,14 +897,14 @@ mod tests {
     }
 
     #[test]
-    fn grace_window_keeps_us_awake_after_last_event() {
+    fn explicit_idle_releases_without_grace() {
         let mut r = Registry::new();
         let t0 = Instant::now();
         let none_alive: HashSet<u32> = HashSet::new();
         r.on_hook(msg(AgentId::Cline, HookEvent::Working, "c", None), t0);
         r.on_hook(msg(AgentId::Cline, HookEvent::Idle, "c", None), t0);
 
-        assert!(any_working_or_in_grace(
+        assert!(!any_working_or_in_grace(
             &r,
             always,
             Duration::from_secs(15),
@@ -782,15 +929,18 @@ mod tests {
     }
 
     #[test]
-    fn live_pid_idle_outlives_the_flat_grace() {
+    fn live_idle_process_does_not_extend_a_finished_turn() {
         let mut r = Registry::new();
         let t0 = Instant::now();
         let alive: HashSet<u32> = HashSet::from([42]);
-        r.on_hook(msg(AgentId::ClaudeCode, HookEvent::Working, "a", Some(42)), t0);
+        r.on_hook(
+            msg(AgentId::ClaudeCode, HookEvent::Working, "a", Some(42)),
+            t0,
+        );
         r.on_hook(msg(AgentId::ClaudeCode, HookEvent::Idle, "a", Some(42)), t0);
         // A live process keeps the trust window open well past the flat 15s:
         // this is what carries a mid-turn think gap without releasing.
-        assert!(any_working_or_in_grace(
+        assert!(!any_working_or_in_grace(
             &r,
             always,
             Duration::from_secs(15),
@@ -808,13 +958,16 @@ mod tests {
     }
 
     #[test]
-    fn dead_pid_falls_back_to_the_flat_grace() {
+    fn explicit_idle_is_authoritative_even_without_a_live_pid() {
         let mut r = Registry::new();
         let t0 = Instant::now();
         let none_alive: HashSet<u32> = HashSet::new();
-        r.on_hook(msg(AgentId::ClaudeCode, HookEvent::Working, "a", Some(42)), t0);
+        r.on_hook(
+            msg(AgentId::ClaudeCode, HookEvent::Working, "a", Some(42)),
+            t0,
+        );
         r.on_hook(msg(AgentId::ClaudeCode, HookEvent::Idle, "a", Some(42)), t0);
-        assert!(any_working_or_in_grace(
+        assert!(!any_working_or_in_grace(
             &r,
             always,
             Duration::from_secs(15),
@@ -831,16 +984,19 @@ mod tests {
     }
 
     #[test]
-    fn end_hook_removal_keeps_the_grace_window() {
+    fn explicit_end_does_not_create_a_tombstone() {
         let mut r = Registry::new();
         let t0 = Instant::now();
         let none_alive: HashSet<u32> = HashSet::new();
         r.on_hook(msg(AgentId::Cline, HookEvent::Working, "c", None), t0);
-        r.on_hook(msg(AgentId::Cline, HookEvent::End, "c", None), t0 + Duration::from_secs(1));
+        r.on_hook(
+            msg(AgentId::Cline, HookEvent::End, "c", None),
+            t0 + Duration::from_secs(1),
+        );
         assert!(r.get(AgentId::Cline, "c").is_none());
         // The row is gone, but its grace keeps covering the next moments so a
         // finished one-shot task cannot release the hold the same tick.
-        assert!(any_working_or_in_grace(
+        assert!(!any_working_or_in_grace(
             &r,
             always,
             Duration::from_secs(15),
@@ -857,7 +1013,7 @@ mod tests {
     }
 
     #[test]
-    fn dead_pid_sweep_preserves_the_grace_window() {
+    fn dead_pid_sweep_cannot_hold_for_a_closed_process() {
         let mut r = Registry::new();
         let t0 = Instant::now();
         let none_alive: HashSet<u32> = HashSet::new();
@@ -867,8 +1023,8 @@ mod tests {
         let t_sweep = t0 + PID_GRACE + Duration::from_millis(1);
         r.tick(Duration::from_secs(20 * 60), &none_alive, t_sweep);
         assert!(r.get(AgentId::Codex, "x").is_none());
-        // The tombstone still covers the remaining grace window.
-        assert!(any_working_or_in_grace(
+        // Closed processes never earn an invisible recovery hold.
+        assert!(!any_working_or_in_grace(
             &r,
             always,
             Duration::from_secs(15),
@@ -904,7 +1060,7 @@ mod tests {
             folder: "proj".into(),
             working: false,
         }];
-        r.on_process(&idle, t0 + Duration::from_secs(20));
+        r.on_process(&idle, t0 + Duration::from_secs(2));
         assert!(any_working_or_in_grace(
             &r,
             always,
@@ -1094,7 +1250,10 @@ mod tests {
     fn a_pidless_working_session_still_demotes_when_silent() {
         let mut r = Registry::new();
         let t0 = Instant::now();
-        r.on_hook(msg(AgentId::OpenCode, HookEvent::Working, "quiet", None), t0);
+        r.on_hook(
+            msg(AgentId::OpenCode, HookEvent::Working, "quiet", None),
+            t0,
+        );
         let alive: HashSet<u32> = HashSet::new();
         r.tick(
             Duration::from_secs(20 * 60),
@@ -1117,14 +1276,20 @@ mod tests {
         assert!(r.get(AgentId::OpenCode, "w").unwrap().stale);
 
         // The plugin's heartbeat says the run is still alive: resurrect.
-        r.on_hook(msg(AgentId::OpenCode, HookEvent::Heartbeat, "w", None), later);
+        r.on_hook(
+            msg(AgentId::OpenCode, HookEvent::Heartbeat, "w", None),
+            later,
+        );
         let s = r.get(AgentId::OpenCode, "w").unwrap();
         assert_eq!(s.state, SessionState::Working);
         assert!(!s.stale);
 
         // An idle session stays idle: heartbeats never resurrect it.
         r.on_hook(msg(AgentId::OpenCode, HookEvent::Idle, "w", None), later);
-        r.on_hook(msg(AgentId::OpenCode, HookEvent::Heartbeat, "w", None), later);
+        r.on_hook(
+            msg(AgentId::OpenCode, HookEvent::Heartbeat, "w", None),
+            later,
+        );
         assert_eq!(
             r.get(AgentId::OpenCode, "w").unwrap().state,
             SessionState::Idle

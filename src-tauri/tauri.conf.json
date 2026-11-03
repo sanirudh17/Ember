@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Ember",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "identifier": "com.ember.keepawake",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -14,16 +14,17 @@
       {
         "label": "main",
         "title": "Ember",
-        "width": 1160,
-        "height": 740,
+        "width": 1100,
+        "height": 700,
         "minWidth": 760,
         "minHeight": 520,
         "resizable": true,
         "maximizable": true,
         "decorations": false,
-        "transparent": true,
+        "transparent": false,
+        "backgroundColor": "#05070a",
         "shadow": true,
-        "visible": true,
+        "visible": false,
         "center": true,
         "dragDropEnabled": false,
         "skipTaskbar": false

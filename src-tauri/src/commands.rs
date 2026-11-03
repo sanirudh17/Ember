@@ -249,8 +249,8 @@ pub fn reset_window(window: WebviewWindow, state: State<'_, Ember>) -> Result<()
             x: None,
             y: None,
             placed: false,
-            width: 920,
-            height: 640,
+            width: crate::shell::DEFAULT_WIDTH,
+            height: crate::shell::DEFAULT_HEIGHT,
             maximized: false,
         };
         engine.settings.save()?;
@@ -281,6 +281,7 @@ pub fn focus_window(app: AppHandle) {
 #[tauri::command]
 pub fn window_control(window: WebviewWindow, action: String) -> Result<bool, String> {
     match action.as_str() {
+        "state" => {}
         "minimize" => window.minimize().map_err(|e| e.to_string())?,
         "toggle_maximize" => {
             if window.is_maximized().unwrap_or(false) {
@@ -390,7 +391,10 @@ fn update_check_note(err: &tauri_plugin_updater::Error) -> Option<String> {
     use tauri_plugin_updater::Error as UpdaterError;
 
     if matches!(err, UpdaterError::ReleaseNotFound) {
-        crate::log::append("UPDATE", "no release manifest at the endpoint (nothing published yet)");
+        crate::log::append(
+            "UPDATE",
+            "no release manifest at the endpoint (nothing published yet)",
+        );
         return None;
     }
 

@@ -55,7 +55,6 @@ export function SettingsPage() {
   const { snapshot, settings } = useReady();
   const {
     apply,
-    confirmQuit,
     update,
     updateChecking,
     updateError,
@@ -110,12 +109,12 @@ export function SettingsPage() {
           Settings
         </h1>
         <p className="sub" data-rise style={{ "--i": 1 } as CSSProperties}>
-          A handful of choices. Everything else Ember decides on its own — the list below
-          tells you what those decisions are.
+          Preferences for your everyday workflow.
         </p>
       </header>
 
-      <section className="section wide">
+      <section className="section wide settings-group">
+        <h2 className="h2">General</h2>
         <div className="rows">
           <div className="srow" data-rise style={{ "--i": 0 } as CSSProperties}>
             <div>
@@ -155,11 +154,16 @@ export function SettingsPage() {
               }
             />
           </div>
+        </div>
+      </section>
+      <section className="section wide settings-group">
+        <h2 className="h2">Power &amp; display</h2>
+        <div className="rows">
           <div className="srow" data-rise style={{ "--i": 3 } as CSSProperties}>
             <div>
               <div className="srow__label">Battery floor</div>
               <div className="srow__hint">
-                Ember releases the hold when the battery drops below this.
+                Release the hold below this level.
               </div>
             </div>
             <Segmented
@@ -171,13 +175,13 @@ export function SettingsPage() {
           </div>
           <div className="srow" data-rise style={{ "--i": 4 } as CSSProperties}>
             <div>
-              <div className="srow__label">Closed-lid hold requires the charger</div>
+              <div className="srow__label">Require charger for lid hold</div>
               <div className="srow__hint">
-                When on, Ember only changes the lid-close action while the laptop is plugged in.
+                Only override the lid-close action while plugged in.
               </div>
             </div>
             <Switch
-              label="Closed-lid hold requires the charger"
+              label="Require charger for lid hold"
               checked={settings.require_charger_for_lid}
               onChange={(next) => apply({ require_charger_for_lid: next })}
             />
@@ -186,8 +190,7 @@ export function SettingsPage() {
             <div>
               <div className="srow__label">Keep the screen on</div>
               <div className="srow__hint">
-                When on, the screen stays lit while Ember holds. Off, Windows may turn the screen
-                off while the PC stays awake.
+                Keep the display lit during a hold. Otherwise, follow Windows.
               </div>
             </div>
             <Switch
@@ -199,38 +202,9 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <section className="section" data-reveal>
-        <h2 className="h2">Always on</h2>
-        <p className="meta">Protections Ember applies on its own, without asking.</p>
-        <div className="facts">
-          <div className="fact" data-rise style={{ "--i": 0 } as CSSProperties}>
-            <div className="fact__k">Battery floor</div>
-            <div className="fact__v">{settings.battery_floor_percent}%</div>
-            <div className="fact__note">
-              Ember lets go below {settings.battery_floor_percent}% and while Windows Battery Saver
-              is on.
-            </div>
-          </div>
-          <div className="fact" data-rise style={{ "--i": 1 } as CSSProperties}>
-            <div className="fact__k">Lid safety cap</div>
-            <div className="fact__v">{snapshot.lid.cap_hours} hours</div>
-            <div className="fact__note">
-              The lid action is never overridden for longer than that.
-            </div>
-          </div>
-          <div className="fact" data-rise style={{ "--i": 2 } as CSSProperties}>
-            <div className="fact__k">The display</div>
-            <div className="fact__v">{settings.keep_display_on ? "Kept on" : "Hands off"}</div>
-            <div className="fact__note">
-              {settings.keep_display_on
-                ? "The screen stays awake while Ember holds the PC."
-                : "Your screen follows the Windows power plan."}
-            </div>
-          </div>
-        </div>
-      </section>
+      <div className="safety-note">Battery Saver always takes priority. Closed-lid holds are limited to {snapshot.lid.cap_hours} hours.</div>
 
-      <section className="section" data-reveal>
+      <section className="section settings-updates" data-reveal>
         <h2 className="h2">Updates</h2>
         <p className="meta">
           Ember updates from GitHub. Every download is signature-verified before it runs.
@@ -260,8 +234,8 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <section className="section col" data-reveal>
-        <h2 className="h2">Recent activity</h2>
+      <details className="section diagnostics">
+        <summary>Recent activity</summary>
         <p className="meta">The last decisions from the engine, oldest first.</p>
         {log.length > 0 ? (
           <div className="log">
@@ -280,19 +254,7 @@ export function SettingsPage() {
         ) : (
           <p className="empty-line">Nothing has happened yet.</p>
         )}
-      </section>
-
-      <footer className="pagefoot">
-        <span>Ember on {snapshot.capabilities.os_name}.</span>
-        <span className="pagefoot__links">
-          <button type="button" className="tlink" onClick={() => void api.resetWindow()}>
-            Reset window position
-          </button>
-          <button type="button" className="tlink" onClick={confirmQuit}>
-            Quit Ember
-          </button>
-        </span>
-      </footer>
+      </details>
     </div>
   );
 }

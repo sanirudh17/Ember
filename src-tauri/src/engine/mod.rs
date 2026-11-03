@@ -73,6 +73,8 @@ pub struct TickOutcome {
     /// True when window chrome (title, overlay icon) needs a push.
     pub chrome_changed: bool,
     pub notifications: Vec<Notify>,
+    /// Every visible transition produces a toast; sound alone is debounced.
+    pub toasts: Vec<Notify>,
 }
 
 /// The cached, slow-moving half of an agent's snapshot.
@@ -722,6 +724,7 @@ impl Engine {
         };
 
         let mut notifications = Vec::new();
+        let mut toasts = Vec::new();
         // One chime per episode: within NOTIFY_EPISODE_DEBOUNCE of the last
         // chime neither another engage nor a matching finish re-fires sound
         // or toast. The orb/UI still flips — only the noise is gated, so a
@@ -733,6 +736,7 @@ impl Engine {
             .unwrap_or(false);
         if is_user_visible && !self.user_visible_engaged {
             self.user_visible_engaged = true;
+            toasts.push(Notify::Engaged);
             if self.manual.active || !episode_open {
                 notifications.push(Notify::Engaged);
                 self.last_notified_at = Some(now);
@@ -750,14 +754,7 @@ impl Engine {
                     .registry
                     .in_grace(|_| true, grace, &self.alive, now)
                     .iter()
-                    .map(|s| {
-                        format!(
-                            "{}:{:?}(folder={},grace)",
-                            s.agent.id(),
-                            s.pid,
-                            s.folder
-                        )
-                    })
+                    .map(|s| format!("{}:{:?}(folder={},grace)", s.agent.id(), s.pid, s.folder))
                     .collect();
             }
             crate::log::append(
@@ -769,6 +766,13 @@ impl Engine {
             );
         } else if !is_user_visible && self.user_visible_engaged {
             self.user_visible_engaged = false;
+            if !self.paused {
+                toasts.push(if blocker.is_some() {
+                    Notify::Battery
+                } else {
+                    Notify::Finished
+                });
+            }
             let held_secs = released_since_unix
                 .map(|since| now_u.saturating_sub(since))
                 .unwrap_or(0);
@@ -803,6 +807,7 @@ impl Engine {
             emit,
             chrome_changed,
             notifications,
+            toasts,
         }
     }
 
@@ -1132,6 +1137,38 @@ mod tests {
     fn freeze_battery(e: &mut Engine, now: Instant) {
         e.battery_at = Some(now);
         POWER_DIRTY.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn every_agent_lifecycle_engages_and_releases_the_power_request() {
+        for agent in AgentId::ALL {
+            let mut e = engine();
+            e.settings.watching = true;
+            e.settings.lid_proof = false;
+            let now = Instant::now();
+            let message = |event| HookMessage {
+                agent,
+                event,
+                session_id: Some("contract".into()),
+                cwd: None,
+                pid: None,
+                ts: 0,
+            };
+            e.registry.on_hook(message(HookEvent::Start), now);
+            assert!(!e.tick(now).snapshot.engaged);
+            assert!(!e.sleep_blocker().is_engaged());
+            e.registry.on_hook(message(HookEvent::Working), now);
+            e.tick(now);
+            assert!(e.sleep_blocker().is_engaged(), "{}", agent.id());
+            assert!(e.tick(now + Duration::from_secs(1)).snapshot.engaged);
+            e.registry
+                .on_hook(message(HookEvent::Idle), now + Duration::from_secs(2));
+            e.tick(now + Duration::from_secs(2));
+            let stopped = e.tick(now + Duration::from_secs(6));
+            assert!(!stopped.snapshot.engaged, "{}", agent.id());
+            assert!(!e.sleep_blocker().is_engaged());
+            assert_eq!(stopped.toasts, vec![Notify::Finished]);
+        }
     }
 
     #[test]
@@ -1725,6 +1762,7 @@ mod tests {
         let out_engage1 = e.tick(now + Duration::from_secs(1));
         assert!(out_engage1.snapshot.engaged);
         assert_eq!(out_engage1.notifications, vec![Notify::Engaged]);
+        assert_eq!(out_engage1.toasts, vec![Notify::Engaged]);
 
         // The turn ends at +2s. The tombstone keeps the grace window alive and
         // the release floor adds 3s: still engaged, and nothing is announced.
@@ -1746,6 +1784,7 @@ mod tests {
         // Release once grace + floor lapse (+18s+): still inside the episode,
         // so the finish chime is suppressed — only the visible state drops.
         let out_floor = e.tick(now + Duration::from_secs(18));
+        assert_eq!(out_floor.toasts, vec![Notify::Finished]);
         assert!(out_floor.notifications.is_empty());
         let out_release = e.tick(now + Duration::from_secs(23));
         assert!(!out_release.snapshot.engaged);

@@ -544,7 +544,7 @@ function previewFor(def: AgentDef, op: "install" | "remove", installed: boolean)
 
 export function createMockBackend() {
   const params = new URLSearchParams(window.location.search);
-  const state = (params.get("state") ?? "default") as DemoState;
+  const state = (params.get("state") ?? "idle") as DemoState;
   const world = buildWorld(state);
   // The review browser may not follow the OS scheme; `?theme=` forces one.
   const theme = params.get("theme");

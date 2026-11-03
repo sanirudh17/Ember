@@ -77,7 +77,9 @@ fn handle_exit(api: &dyn PowerApi, parent_pid: u32, state_file: &str) {
         Ok(()) => crate::log::append("LID", "watchdog put the lid action back after Ember died"),
         Err(e) => crate::log::append(
             "LID",
-            &format!("watchdog could not restore the lid action ({e}); the record stays for the next launch"),
+            &format!(
+                "watchdog could not restore the lid action ({e}); the record stays for the next launch"
+            ),
         ),
     }
 }

@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { StoreProvider } from "./lib/store";
 import "./styles/global.css";
+import "./styles/workspace.css";
 
 // Before the first paint: resolve "system" to the OS theme and arm the enter
 // animations. Both have to happen before React renders anything.

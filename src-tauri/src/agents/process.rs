@@ -50,10 +50,10 @@ use super::{AgentId, folder_name};
 /// an isolated spike can never engage on its own (a repeated spike/quiet
 /// alternation always decays back to zero) while a sustained modest load
 /// engages within [`CPU_ENERGY`] worth of samples.
-pub const CPU_FLOOR: f32 = 2.0;
+pub const CPU_FLOOR: f32 = 3.0;
 pub const CPU_SAMPLE_CAP: f32 = 4.0;
-pub const CPU_ENERGY: f32 = 6.0;
-pub const IDLE_HOLD: Duration = Duration::from_secs(15);
+pub const CPU_ENERGY: f32 = 8.0;
+pub const IDLE_HOLD: Duration = Duration::from_secs(4);
 pub const STARTUP_IGNORE_WINDOW: Duration = Duration::from_secs(10);
 
 /// Every matched process stays invisible for this long after it is first seen.
@@ -171,6 +171,7 @@ fn real_parent(sys: &System, pid: u32) -> Option<u32> {
 pub struct ProcessDetector {
     sys: System,
     tracks: HashMap<u32, Track>,
+    identities: HashMap<u32, u64>,
     created_at: Instant,
     last_refresh: Option<Instant>,
     refreshes: u32,
@@ -190,6 +191,7 @@ impl ProcessDetector {
         ProcessDetector {
             sys: System::new(),
             tracks: HashMap::new(),
+            identities: HashMap::new(),
             created_at: Instant::now(),
             last_refresh: None,
             refreshes: 0,
@@ -266,7 +268,6 @@ impl ProcessDetector {
             owner.remove(&wrapper);
         }
 
-
         // Sum CPU across each matched process and its descendants, and remember
         // which processes belong to which matched tree (for folder resolution).
         let mut tree_cpu: HashMap<u32, f32> = HashMap::new();
@@ -298,6 +299,21 @@ impl ProcessDetector {
         // Is CPU trustworthy yet? Ignore the first 10 seconds and need >= 2 refreshes.
         let trustworthy =
             now.duration_since(self.created_at) >= STARTUP_IGNORE_WINDOW && self.refreshes >= 2;
+
+        // Same-agent PID reuse must not inherit a previous process's activity.
+        self.tracks.retain(|pid, _| {
+            self.sys
+                .process(sysinfo::Pid::from_u32(*pid))
+                .is_some_and(|p| self.identities.get(pid) == Some(&p.start_time()))
+        });
+        self.identities = owner
+            .keys()
+            .filter_map(|pid| {
+                self.sys
+                    .process(sysinfo::Pid::from_u32(*pid))
+                    .map(|p| (*pid, p.start_time()))
+            })
+            .collect();
 
         // Update per-pid tracks.
         for (pid, agent) in &owner {
@@ -331,7 +347,15 @@ impl ProcessDetector {
             // Instantaneous reading: one burst counts once. (A window average
             // would smear a single 2s spike across ~3 polls and satisfy the
             // energy gate by itself, pinning stopped runtimes as working.)
-            step_track(track, cpu, now);
+            if requires_protocol_activity(self.sys.process(sysinfo::Pid::from_u32(*pid))) {
+                // Shared servers may index/cache while every conversation is idle.
+                // Keep the open process visible, but only its session hooks can hold awake.
+                track.working = false;
+                track.energy = 0.0;
+                track.below_since = None;
+            } else {
+                step_track(track, cpu, now);
+            }
         }
 
         // Forget processes that exited or were pruned as runtime wrappers.
@@ -446,19 +470,53 @@ pub fn is_background_daemon(exe_name: &str, cmd_tokens: &[String]) -> bool {
         .skip(1)
         .map(|s| s.trim_matches(['"', '\'']))
         .collect();
-    if exe_name.starts_with("codex")
-        && args.first().copied() == Some("app-server")
-        && (args.contains(&"--managed-daemon") || args.contains(&"daemon"))
-    {
+    if exe_name.starts_with("codex") && args.first().copied() == Some("app-server") {
         return true;
     }
-    if exe_name.starts_with("opencode")
-        && args.contains(&"serve")
-        && args.contains(&"--service")
-    {
+    if exe_name.starts_with("opencode") && args.first().copied() == Some("serve") {
         return true;
     }
     false
+}
+
+/// Shared ACP transports do not expose turn boundaries through CPU usage.
+fn requires_protocol_activity(process: Option<&Process>) -> bool {
+    process.is_some_and(|p| {
+        let exe = p
+            .exe()
+            .and_then(|p| p.file_name())
+            .unwrap_or_else(|| p.name())
+            .to_string_lossy()
+            .to_lowercase();
+        protocol_only_executable(&exe)
+    })
+}
+
+pub fn protocol_only_executable(exe: &str) -> bool {
+    matches!(exe, "agy_acp_server.exe" | "agy_acp_server")
+}
+
+/// Read only the runtime's program argument, never prompt text or tool args.
+fn runtime_entrypoint<'a>(exe: &str, tokens: &'a [String]) -> Option<&'a str> {
+    let mut args = tokens.iter().skip(1);
+    while let Some(arg) = args.next() {
+        let arg = arg.trim_matches(['"', '\'']);
+        if ["-e", "--eval", "-p", "--print"].contains(&arg) {
+            return None;
+        }
+        if ["-r", "--require", "--import", "--loader"].contains(&arg) {
+            args.next();
+            continue;
+        }
+        if arg.starts_with('-') {
+            continue;
+        }
+        if (exe == "bun.exe" || exe == "deno.exe") && arg == "run" {
+            continue;
+        }
+        return Some(arg);
+    }
+    None
 }
 
 pub fn match_agent_tokens(
@@ -486,37 +544,39 @@ pub fn match_agent_tokens(
             let matched_entrypoint = def.cmdline_matchers.iter().any(|matcher| {
                 let m = matcher.to_lowercase();
                 let m_norm = m.replace('\\', "/");
-                cmd_tokens.iter().skip(1).any(|arg| {
-                    let arg_clean = arg.trim_matches(['"', '\'']);
-                    let arg_norm = arg_clean.replace('\\', "/");
-                    // Scoped package / path segment match (e.g. `@openai/codex` in `.../node_modules/@openai/codex/bin/codex.js`)
-                    if m_norm.contains('/') {
-                        let seg = m_norm.trim_matches('/');
-                        if arg_norm == seg
-                            || arg_norm.starts_with(&format!("{seg}/"))
-                            || arg_norm.contains(&format!("/{seg}/"))
-                            || arg_norm.ends_with(&format!("/{seg}"))
-                        {
+                runtime_entrypoint(exe_name, cmd_tokens)
+                    .into_iter()
+                    .any(|arg| {
+                        let arg_clean = arg.trim_matches(['"', '\'']);
+                        let arg_norm = arg_clean.replace('\\', "/");
+                        // Scoped package / path segment match (e.g. `@openai/codex` in `.../node_modules/@openai/codex/bin/codex.js`)
+                        if m_norm.contains('/') {
+                            let seg = m_norm.trim_matches('/');
+                            if arg_norm == seg
+                                || arg_norm.starts_with(&format!("{seg}/"))
+                                || arg_norm.contains(&format!("/{seg}/"))
+                                || arg_norm.ends_with(&format!("/{seg}"))
+                            {
+                                return true;
+                            }
+                        }
+                        // Match package name or script basename
+                        if arg_norm == m_norm || arg_norm.starts_with(&format!("{m_norm}/")) {
                             return true;
                         }
-                    }
-                    // Match package name or script basename
-                    if arg_norm == m_norm || arg_norm.starts_with(&format!("{m_norm}/")) {
-                        return true;
-                    }
-                    if let Some(file_name) = std::path::Path::new(arg_clean).file_name() {
-                        let fname = file_name.to_string_lossy().to_lowercase();
-                        if fname == m
-                            || fname == format!("{m}.js")
-                            || fname == format!("{m}.mjs")
-                            || fname == format!("{m}.cjs")
-                            || fname == format!("{m}.ts")
-                        {
-                            return true;
+                        if let Some(file_name) = std::path::Path::new(arg_clean).file_name() {
+                            let fname = file_name.to_string_lossy().to_lowercase();
+                            if fname == m
+                                || fname == format!("{m}.js")
+                                || fname == format!("{m}.mjs")
+                                || fname == format!("{m}.cjs")
+                                || fname == format!("{m}.ts")
+                            {
+                                return true;
+                            }
                         }
-                    }
-                    false
-                })
+                        false
+                    })
             });
             if matched_entrypoint {
                 return Some(*agent);
@@ -570,7 +630,11 @@ pub fn process_cwd(pid: sysinfo::Pid) -> Option<PathBuf> {
     };
     let read_ptr = |addr: usize| -> Option<usize> {
         let mut out = 0usize;
-        read(addr, &mut out as *mut usize as *mut c_void, size_of::<usize>())?;
+        read(
+            addr,
+            &mut out as *mut usize as *mut c_void,
+            size_of::<usize>(),
+        )?;
         Some(out)
     };
 
@@ -784,6 +848,62 @@ mod tests {
     use super::*;
 
     #[test]
+    fn servers_need_session_hooks_instead_of_cpu_activity() {
+        assert!(protocol_only_executable("agy_acp_server.exe"));
+        assert!(!protocol_only_executable("agy.exe"));
+        for (exe, sub) in [("codex.exe", "app-server"), ("opencode.exe", "serve")] {
+            assert!(is_background_daemon(exe, &[exe.into(), sub.into()]));
+        }
+        assert!(!is_background_daemon(
+            "codex.exe",
+            &["codex.exe".into(), "exec".into()]
+        ));
+    }
+
+    #[test]
+    fn runtime_payloads_are_not_agent_entrypoints() {
+        for exe in ["node.exe", "bun.exe", "deno.exe"] {
+            let args = vec![
+                exe.to_string(),
+                "ordinary-script.js".into(),
+                "codex.js".into(),
+                "@openai/codex".into(),
+            ];
+            assert_eq!(match_agent_tokens(exe, &args, &AgentId::ALL), None);
+        }
+        let args = vec!["node.exe".into(), "--eval".into(), "codex".into()];
+        assert_eq!(match_agent_tokens("node.exe", &args, &AgentId::ALL), None);
+    }
+
+    #[test]
+    fn every_agent_matches_its_exact_executable_and_respects_watch_filter() {
+        for agent in AgentId::ALL {
+            for exe in agent.def().executables {
+                assert_eq!(
+                    match_agent_tokens(exe, &[], &AgentId::ALL),
+                    Some(agent),
+                    "{exe}"
+                );
+                assert_eq!(match_agent_tokens(exe, &[], &[]), None);
+            }
+        }
+    }
+
+    #[test]
+    fn acp_server_is_antigravity_but_unrelated_server_is_not() {
+        for exe in ["agy_acp_server.exe", "agy_acp_server"] {
+            assert_eq!(
+                match_agent_tokens(exe, &[], &AgentId::ALL),
+                Some(AgentId::Antigravity)
+            );
+        }
+        assert_eq!(
+            match_agent_tokens("some_acp_server.exe", &[], &AgentId::ALL),
+            None
+        );
+    }
+
+    #[test]
     fn startup_cpu_spike_does_not_engage() {
         let now = Instant::now();
         // One spike is a single capped sample; the gate needs a full budget.
@@ -833,7 +953,7 @@ mod tests {
         // accumulates and the tree must never count as work.
         let now = Instant::now();
         let (mut working, mut energy, mut below) = (false, 0.0, None);
-        for (i, sample) in [0.3, 1.2, 0.9, 0.0, 0.8, 1.25, 0.4].iter().enumerate() {
+        for (i, sample) in [0.3, 1.2, 2.3, 2.9, 0.8, 1.25, 0.4].iter().enumerate() {
             (working, energy, below) = advance_hysteresis(
                 working,
                 energy,
@@ -897,17 +1017,17 @@ mod tests {
         // instant. 3.5 adds 1.5 per sample — engages on the fourth (~8s).
         let now = Instant::now();
         let (mut working, mut energy, mut below) = (false, 0.0, None);
-        for i in 0..4u64 {
+        for i in 0..6u64 {
             (working, energy, below) = advance_hysteresis(
                 working,
                 energy,
                 below,
-                3.5,
+                4.5,
                 IDLE_HOLD,
                 now + Duration::from_secs(2 * i),
             );
         }
-        assert!(working, "a sustained modest load must engage within ~8s");
+        assert!(working, "a sustained modest load must engage within ~12s");
         assert!(below.is_none());
     }
 
@@ -1322,6 +1442,6 @@ mod tests {
             "serve".to_string(),
             "--stdio".to_string(),
         ];
-        assert!(!is_background_daemon("opencode.exe", &opencode_stdio));
+        assert!(is_background_daemon("opencode.exe", &opencode_stdio));
     }
 }

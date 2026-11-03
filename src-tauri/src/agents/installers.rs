@@ -52,46 +52,57 @@ const fn b(
     }
 }
 
-static CLAUDE_CODE_BINDINGS: [Binding; 7] = [
+static CLAUDE_CODE_BINDINGS: [Binding; 11] = [
     b("SessionStart", HookEvent::Start, None),
     b("UserPromptSubmit", HookEvent::Working, None),
     b("PreToolUse", HookEvent::Working, None),
-    b("PostToolUse", HookEvent::Working, None),
+    b("PostToolUse", HookEvent::Resume, None),
     b("Notification", HookEvent::Idle, Some("idle_prompt")),
     b("Stop", HookEvent::Idle, None),
+    b("StopFailure", HookEvent::Idle, None),
+    b("PostToolUseFailure", HookEvent::Resume, None),
+    b("Elicitation", HookEvent::Waiting, None),
+    b("ElicitationResult", HookEvent::Resume, None),
     b("SessionEnd", HookEvent::End, None),
 ];
 
-static CODEX_BINDINGS: [Binding; 6] = [
+static CODEX_BINDINGS: [Binding; 7] = [
     b("SessionStart", HookEvent::Start, None),
     b("UserPromptSubmit", HookEvent::Working, None),
     b("PreToolUse", HookEvent::Working, None),
-    b("PostToolUse", HookEvent::Working, None),
+    b("PostToolUse", HookEvent::Resume, None),
     b("Stop", HookEvent::Idle, None),
+    b("Interrupt", HookEvent::Idle, None),
     b("SessionEnd", HookEvent::End, None),
 ];
 
 static ANTIGRAVITY_BINDINGS: [Binding; 5] = [
     b("SessionStart", HookEvent::Start, None),
     b("PreInvocation", HookEvent::Working, None),
-    b("PostInvocation", HookEvent::Working, None),
-    b("PostToolUse", HookEvent::Working, Some("*")),
+    b("PostInvocation", HookEvent::Heartbeat, None),
+    b("PostToolUse", HookEvent::Heartbeat, Some("*")),
     b("Stop", HookEvent::Idle, None),
 ];
 
 // Plugin-driven agents get a single file; the event table below is only used to
 // describe the integration in the UI and ledger. The event names come from the
 // verified matrix in `docs/AGENT_INTEGRATIONS.md`.
-static OPENCODE_BINDINGS: [Binding; 6] = [
+static OPENCODE_BINDINGS: [Binding; 8] = [
     b("session.created", HookEvent::Start, None),
     b("session.prompt", HookEvent::Working, None),
     b("session.execution.started", HookEvent::Working, None),
     b("session.execution.* ended", HookEvent::Idle, None),
     b("session.status busy/retry", HookEvent::Working, None),
     b("session.deleted", HookEvent::End, None),
+    b(
+        "permission/question/form requested",
+        HookEvent::Waiting,
+        None,
+    ),
+    b("permission/question/form replied", HookEvent::Resume, None),
 ];
 
-static PI_BINDINGS: [Binding; 9] = [
+static PI_BINDINGS: [Binding; 10] = [
     b("session_start", HookEvent::Start, None),
     b("before_agent_start", HookEvent::Working, None),
     b("agent_start", HookEvent::Working, None),
@@ -99,17 +110,17 @@ static PI_BINDINGS: [Binding; 9] = [
     b("tool_call", HookEvent::Working, None),
     b("tool_execution_start", HookEvent::Working, None),
     b("agent_settled", HookEvent::Idle, None),
-    b("agent_end", HookEvent::Idle, None),
+    b("ui_prompt_start", HookEvent::Waiting, None),
+    b("ui_prompt_end", HookEvent::Resume, None),
     b("session_shutdown", HookEvent::End, None),
 ];
 
-static OH_MY_PI_BINDINGS: [Binding; 8] = [
+static OH_MY_PI_BINDINGS: [Binding; 7] = [
     b("session_start", HookEvent::Start, None),
     b("before_agent_start", HookEvent::Working, None),
     b("agent_start", HookEvent::Working, None),
     b("tool_call", HookEvent::Working, None),
     b("tool_execution_start", HookEvent::Working, None),
-    b("agent_settled", HookEvent::Idle, None),
     b("agent_end", HookEvent::Idle, None),
     b("session_shutdown", HookEvent::End, None),
 ];
@@ -593,8 +604,9 @@ fn render_codex_toml(
             // moved executables propagate; install doubles as repair.
             let mut found = false;
             for group in aot.iter_mut() {
-                if let Some(handlers) =
-                    group.get_mut("hooks").and_then(Item::as_array_of_tables_mut)
+                if let Some(handlers) = group
+                    .get_mut("hooks")
+                    .and_then(Item::as_array_of_tables_mut)
                 {
                     for handler in handlers.iter_mut() {
                         let ours = handler
@@ -725,246 +737,139 @@ fn render_plugin_file(
 }
 
 fn opencode_plugin(exe: &str) -> String {
-    // OpenCode 2 loads this module into its `serve` process and drives it via
-    // `default.setup(ctx)`: the module subscribes to the live event stream and
-    // may register `ctx.session.hook("prompt", ...)`. The v1-style named
-    // factory is kept so the file still works if a host calls factories
-    // directly.
-    //
-    // Run lifecycle: `session.execution.started` opens a run (prompt to final
-    // message — reasoning, thinking and streaming all included) and the
-    // terminal `session.execution.succeeded / failed / interrupted` events end
-    // it. `session.status` busy/retry refreshes a live run; its idle state and
-    // the bare session-idle event are deliberately NOT mapped, because they
-    // can fire mid-run and would hand the machine back after the grace window.
-    // No per-tool or per-delta events are mapped either, so a finished tool
-    // can never idle a live run; long reasoning phases stay Working.
-    //
-    // The plugin maps only turn boundaries and session lifecycle, so a long
-    // reasoning phase emits nothing at all; a background heartbeat keeps a
-    // working session fresh every ~30s — heartbeats never resurrect an idled
-    // session, they only keep a working one fresh. The 60s timer with a 30s
-    // staleness threshold bounds the worst-case gap at ~61s, inside the
-    // registry's 90s live-process trust window, and it also re-announces a
-    // mid-run session quickly after an Ember restart. State, timer and exit
-    // cleanup live on `globalThis` so the host's plugin hot reload never
-    // leaks a second timer or loses a running session.
     format!(
         r#"import {{ spawnSync }} from "node:child_process";
-
 const EMBER = "{exe}";
 const AGENT = "opencode";
-
 function fire(event, sessionId, cwd) {{
-  try {{
-    spawnSync(
-      EMBER,
-      ["hook", AGENT, event],
-      {{
-        input: JSON.stringify({{
-          session_id: sessionId || "",
-          cwd: cwd || "",
-          pid: process.pid,
-          ts: Math.floor(Date.now() / 1000),
-        }}),
-        timeout: 600,
-        windowsHide: true,
-        stdio: ["pipe", "ignore", "ignore"],
-      }},
-    );
-  }} catch {{
-    /* never break the host agent */
-  }}
+  try {{ spawnSync(EMBER, ["hook", AGENT, event], {{
+    input: JSON.stringify({{ session_id: sessionId, cwd: cwd || "", pid: process.pid, ts: Math.floor(Date.now()/1000) }}),
+    timeout: 600, windowsHide: true, stdio: ["pipe", "ignore", "ignore"],
+  }}); }} catch {{ /* never break the agent */ }}
 }}
-
-const store = (globalThis.__emberOpenCodeHooks ||= {{
-  sessions: new Map(),
-  heartbeat: null,
-  exitHooked: false,
-}});
-
+const store = (globalThis.__emberOpenCodeHooks ||= {{ sessions: new Map(), heartbeat: null, exitHooked: false }});
 function stateFor(id, cwd) {{
-  let st = store.sessions.get(id);
-  if (!st) {{
-    st = {{ working: false, lastFireAt: Date.now(), cwd: cwd || "" }};
-    store.sessions.set(id, st);
-  }}
-  if (cwd) st.cwd = cwd;
+  let st=store.sessions.get(id);
+  if (!st) {{ st={{working:false, active:false, pending:new Set(), cwd:cwd||"", lastFireAt:0}}; store.sessions.set(id,st); }}
+  st.pending ||= new Set();
+  if(cwd)st.cwd=cwd;
   return st;
 }}
-
-function markWorking(id, cwd) {{
-  if (!id) return;
-  const st = stateFor(id, cwd);
-  const now = Date.now();
-  if (st.working && now - st.lastFireAt < 20000) return; // event-storm dedupe
-  st.working = true;
-  st.lastFireAt = now;
-  fire("working", id, st.cwd);
+function markWorking(id, cwd, begin=false) {{
+  if(!id)return;
+  const st=stateFor(id,cwd);
+  if(begin)st.active=true;
+  if(!st.active || st.pending.size)return;
+  const now=Date.now();
+  if(st.working && now-st.lastFireAt<20000)return;
+  st.working=true; st.lastFireAt=now; fire("working",id,st.cwd);
 }}
-
-function markIdle(id, cwd) {{
-  if (!id) return;
-  const st = stateFor(id, cwd);
-  const now = Date.now();
-  if (!st.working && now - st.lastFireAt < 20000) return;
-  st.working = false;
-  st.lastFireAt = now;
-  fire("idle", id, st.cwd);
+function markIdle(id,cwd,terminal=true) {{
+  if(!id)return;
+  const st=stateFor(id,cwd), wasWorking=st.working;
+  if(terminal){{st.active=false;st.pending.clear();}}
+  st.working=false;
+  if(wasWorking || terminal){{st.lastFireAt=Date.now();fire("idle",id,st.cwd);}}
 }}
-
-function markEnd(id, cwd) {{
-  if (!id) return;
-  const st = stateFor(id, cwd);
-  store.sessions.delete(id);
-  fire("end", id, st.cwd);
+function markEnd(id,cwd) {{
+  if(!id)return;
+  const st=store.sessions.get(id);store.sessions.delete(id);fire("end",id,cwd||st?.cwd);
 }}
-
+function waiting(id,cwd,key) {{
+  if(!id)return;
+  const st=stateFor(id,cwd);
+  st.pending.add(key);markIdle(id,cwd,false);
+}}
+function replied(id,cwd,key) {{
+  const st=store.sessions.get(id);
+  if(!st || !st.pending.delete(key))return;
+  if(st.active && !st.pending.size)markWorking(id,cwd);
+}}
 function startHeartbeat() {{
-  if (store.heartbeat) return;
-  store.heartbeat = setInterval(() => {{
-    const now = Date.now();
-    for (const [id, st] of store.sessions) {{
-      if (st.working && now - st.lastFireAt > 30 * 1000) {{
-        st.lastFireAt = now;
-        fire("heartbeat", id, st.cwd);
+  if(store.heartbeat)return;
+  store.heartbeat=setInterval(()=>{{
+    for(const [id,st] of store.sessions){{
+      if(st.active && st.working && !st.pending?.size && Date.now()-st.lastFireAt>30000){{
+        st.lastFireAt=Date.now();fire("working",id,st.cwd);
       }}
     }}
-  }}, 60 * 1000);
-  if (typeof store.heartbeat.unref === "function") store.heartbeat.unref();
+  }},30000);
+  store.heartbeat.unref?.();
 }}
-
-if (!store.exitHooked) {{
-  store.exitHooked = true;
-  const flush = () => {{
-    for (const [id, st] of store.sessions) fire("end", id, st.cwd);
-  }};
-  process.once("exit", flush);
-  process.once("SIGINT", flush);
-  process.once("SIGTERM", flush);
+if(!store.exitHooked){{
+  store.exitHooked=true;
+  const flush=()=>{{for(const [id,st] of store.sessions)fire("end",id,st.cwd);store.sessions.clear();}};
+  process.once("exit",flush); process.once("SIGINT",flush); process.once("SIGTERM",flush);
 }}
-
-async function handle(ctx, input) {{
-  const type = input?.type || "";
-  const data = input?.data || input?.properties || {{}};
-  const info = data.info && typeof data.info === "object" ? data.info : {{}};
-  const id = data.sessionID || data.sessionId || data.id || info.id || info.sessionID || "";
-  // `session.created` carries the working directory at `location.directory` (v2)
-  // or `info.directory` (v1), and `ctx.location.directory` is always present on
-  // v2 hosts; the directory sticks on the session state once it is known.
-  const cwd =
-    data.cwd ||
-    data.directory ||
-    (data.location && data.location.directory) ||
-    info.directory ||
-    (info.location && info.location.directory) ||
-    (ctx && ctx.location && ctx.location.directory) ||
-    "";
-  switch (type) {{
+async function handle(ctx,input,v1=false){{
+  const type=input?.type||"", data=input?.data||input?.properties||{{}};
+  const info=data.info||{{}}, form=data.form||{{}};
+  const id=data.sessionID||data.sessionId||form.sessionID||info.sessionID||info.id||(type.startsWith("session.")?data.id:"")||"";
+  const cwd=data.cwd||data.directory||data.location?.directory||input?.location?.directory||info.directory||ctx?.location?.directory||ctx?.directory||"";
+  const family=type.startsWith("permission.")?"permission":type.startsWith("form.")?"form":"question";
+  const request=family+":"+(form.id||data.requestID||data.id||"default");
+  switch(type){{
     case "session.created":
-      if (id && !store.sessions.has(id)) {{
-        fire("start", id, cwd);
-        stateFor(id, cwd);
-      }}
+      if(id&&!store.sessions.has(id)){{stateFor(id,cwd);fire("start",id,cwd);}}break;
+    case "session.deleted": markEnd(id,cwd);break;
+    case "session.status":
+      if(["busy","retry"].includes(data.status?.type))markWorking(id,cwd,true);
+      else if(v1&&data.status?.type==="idle")markIdle(id,cwd);
       break;
-    case "session.deleted":
-      if (id) markEnd(id, cwd);
-      break;
-    case "session.status": {{
-      // Only the working side is trusted: idle-ish statuses can flip between
-      // steps while the run continues, and the terminal execution events
-      // below are the single reliable end-of-run signal.
-      const st = data.status && data.status.type;
-      if (st === "busy" || st === "retry") markWorking(id, cwd);
-      break;
-    }}
-    case "session.execution.started":
-      markWorking(id, cwd);
-      break;
+    case "session.idle": if(v1)markIdle(id,cwd);break;
+    case "session.execution.started": markWorking(id,cwd,true);break;
     case "session.execution.succeeded":
     case "session.execution.failed":
-    case "session.execution.interrupted":
-      if (id) markIdle(id, cwd);
-      break;
-    default:
-      break;
+    case "session.execution.interrupted": markIdle(id,cwd);break;
+    case "session.error": if(v1)markIdle(id,cwd);break;
+    // Progress can sustain/resume an active run, but cannot resurrect a completed one.
+    case "session.reasoning.started":
+    case "session.reasoning.delta":
+    case "session.tool.called":
+    case "session.tool.progress":
+    case "session.text.delta":
+    case "session.retry.scheduled": markWorking(id,cwd);break;
+    case "permission.asked":
+    case "question.asked":
+    case "form.created": waiting(id,cwd,request);break;
+    case "permission.replied":
+    case "question.replied":
+    case "question.rejected":
+    case "form.replied":
+    case "form.cancelled": replied(id,cwd,request);break;
   }}
 }}
-
-async function setup(ctx) {{
-  const noop = async () => {{}};
-  try {{
-    if (!ctx || typeof ctx.event?.subscribe !== "function") return noop;
-    let promptReg = null;
-    try {{
-      if (typeof ctx.session?.hook === "function") {{
-        promptReg = await ctx.session.hook("prompt", async (properties) => {{
-          const id = properties?.sessionID || properties?.sessionId || "";
-          const cwd =
-            properties?.cwd ||
-            properties?.directory ||
-            (ctx?.location && ctx.location.directory) ||
-            "";
-          if (id) markWorking(id, cwd);
-        }});
-      }}
-    }} catch {{
-      /* optional on older hosts */
-    }}
-    startHeartbeat();
-    const controller = new AbortController();
-    const consume = async () => {{
-      for await (const input of ctx.event.subscribe({{ signal: controller.signal }})) {{
-        if (controller.signal.aborted) break;
-        try {{
-          await handle(ctx, input);
-        }} catch {{
-          /* one bad event must not kill the subscription */
-        }}
-      }}
-    }};
-    const consuming = consume().catch(() => {{}});
-    return async () => {{
-      try {{
-        controller.abort();
-        try {{
-          await promptReg?.dispose?.();
-        }} finally {{
-          try {{
-            await consuming;
-          }} catch {{
-            /* ignore */
-          }}
-        }}
-      }} catch {{
-        /* cleanup must never throw */
-      }}
-    }};
-  }} catch {{
-    return noop;
-  }}
-}}
-
-// v1 hosts call exported factories directly.
-export const EmberHooks = async (_ctx) => {{
+export const EmberHooks=async(ctx)=>{{
   startHeartbeat();
   return {{
-    event: async ({{ event }}) => {{
-      try {{
-        await handle(_ctx || null, event);
-      }} catch {{
-        /* ignore */
-      }}
+    event:async({{event}})=>{{try{{await handle(ctx,event,true);}}catch{{}}}},
+    "tool.execute.before":async(input)=>{{
+      const id=input?.sessionID||input?.sessionId||"";
+      if(input?.tool==="question")waiting(id,ctx?.directory,"question:tool");
+      else markWorking(id,ctx?.directory,true);
     }},
-    "tool.execute.before": async (input) => {{
-      const id = input?.sessionID || input?.sessionId || "";
-      const cwd = (_ctx && _ctx.directory) || (_ctx && _ctx.worktree) || "";
-      if (id) markWorking(id, cwd);
+    "tool.execute.after":async(input)=>{{
+      if(input?.tool==="question")replied(input?.sessionID||input?.sessionId,ctx?.directory,"question:tool");
     }},
   }};
 }};
-
-// v2 hosts instantiate `default.setup`.
+async function setup(ctx){{
+  if(typeof ctx?.event?.subscribe!=="function")return async()=>{{}};
+  startHeartbeat();
+  const controller=new AbortController();
+  let promptReg;
+  if(typeof ctx.session?.hook==="function"){{
+    promptReg=await ctx.session.hook("prompt",async p=>markWorking(p?.sessionID||p?.sessionId,p?.cwd||ctx.location?.directory,true));
+  }}
+  const consuming=(async()=>{{try{{
+    for await(const input of ctx.event.subscribe({{signal:controller.signal}})){{
+      if(controller.signal.aborted)break;
+      try{{await handle(ctx,input);}}catch{{}}
+    }}
+  }}catch{{ /* subscription shutdown ends owned sessions below */ }}
+  finally{{for(const [id,st] of store.sessions)markEnd(id,st.cwd);}}}})();
+  return async()=>{{controller.abort();await promptReg?.dispose?.();await consuming;}};
+}}
 export default {{ id: "ember-hooks", server: EmberHooks, setup }};
 "#
     )
@@ -981,7 +886,21 @@ fn pi_extension(exe: &str) -> String {
 const EMBER = "{exe}";
 const AGENT = "pi";
 
+const running = new Set();
+const waiting = new Set();
 function fire(event, sessionId) {{
+  if (event === "waiting") {{
+    if (!running.has(sessionId)) return;
+    waiting.add(sessionId);
+    running.delete(sessionId);
+  }}
+  if (event === "resume") {{
+    if (!waiting.delete(sessionId)) return;
+    running.add(sessionId);
+  }}
+  if (event === "idle" || event === "end" || event === "start" || event === "working") waiting.delete(sessionId);
+  if (event === "working") running.add(sessionId);
+  if (event === "idle" || event === "end" || event === "start") running.delete(sessionId);
   try {{
     spawnSync(EMBER, ["hook", AGENT, event], {{
       input: JSON.stringify({{
@@ -1001,7 +920,13 @@ function fire(event, sessionId) {{
 
 export default function emberExtension(pi) {{
   let lastSessionId = "";
+  const heartbeat = setInterval(() => {{
+    for (const sessionId of running) fire("working", sessionId);
+  }}, 30000);
+  heartbeat.unref?.();
   const cleanup = () => {{
+    clearInterval(heartbeat);
+    for (const sessionId of [...running]) fire("end", sessionId);
     fire("end", lastSessionId);
   }};
   process.once("exit", cleanup);
@@ -1041,13 +966,17 @@ export default function emberExtension(pi) {{
   on("before_agent_start", (event, ctx) => fire("working", id(ctx, event)));
   on("agent_start", (event, ctx) => fire("working", id(ctx, event)));
   on("turn_start", (event, ctx) => fire("working", id(ctx, event)));
-  on("tool_call", (event, ctx) => fire("working", id(ctx, event)));
+  on("tool_call", (event, ctx) => {{
+    const name = event?.toolName || event?.tool_name;
+    fire(["ask", "ask_user", "question", "AskUserQuestion"].includes(name) ? "waiting" : "working", id(ctx, event));
+  }});
+  on("tool_execution_end", (event, ctx) => {{
+    if (["ask", "ask_user", "question", "AskUserQuestion"].includes(event?.toolName || event?.tool_name)) fire("resume", id(ctx, event));
+  }});
   on("tool_execution_start", (event, ctx) => fire("working", id(ctx, event)));
   on("agent_settled", (event, ctx) => fire("idle", id(ctx, event)));
-  on("agent_end", (event, ctx) => {{
-    if (event?.willContinue === true) return;
-    fire("idle", id(ctx, event));
-  }});
+  on("ui_prompt_start", (event, ctx) => fire("waiting", id(ctx, event)));
+  on("ui_prompt_end", (event, ctx) => fire("resume", id(ctx, event)));
   on("session_shutdown", (event, ctx) => fire("end", id(ctx, event)));
 }}
 "#
@@ -1058,15 +987,29 @@ fn ohmy_pi_extension(exe: &str) -> String {
     // Oh My Pi loads extensions from ~/.omp/agent/extensions and dispatches
     // events as `pi.on(name, (event, ctx) => ...)`: the first argument is the
     // event payload and the second is the extension context (whose
-    // `sessionManager.getSessionId()` exposes the session id). Idle arrives via
-    // `agent_settled` and terminal `agent_end` (`event.willContinue !== true`).
+    // `sessionManager.getSessionId()` exposes the session id). Only terminal
+    // `agent_end` (`event.willContinue !== true`) releases the hold.
     format!(
         r#"import {{ spawnSync }} from "node:child_process";
 
 const EMBER = "{exe}";
 const AGENT = "oh-my-pi";
 
+const running = new Set();
+const waiting = new Set();
 function fire(event, sessionId) {{
+  if (event === "waiting") {{
+    if (!running.has(sessionId)) return;
+    waiting.add(sessionId);
+    running.delete(sessionId);
+  }}
+  if (event === "resume") {{
+    if (!waiting.delete(sessionId)) return;
+    running.add(sessionId);
+  }}
+  if (event === "idle" || event === "end" || event === "start" || event === "working") waiting.delete(sessionId);
+  if (event === "working") running.add(sessionId);
+  if (event === "idle" || event === "end" || event === "start") running.delete(sessionId);
   try {{
     spawnSync(EMBER, ["hook", AGENT, event], {{
       input: JSON.stringify({{
@@ -1086,7 +1029,13 @@ function fire(event, sessionId) {{
 
 export default function emberExtension(pi) {{
   let lastSessionId = "";
+  const heartbeat = setInterval(() => {{
+    for (const sessionId of running) fire("working", sessionId);
+  }}, 30000);
+  heartbeat.unref?.();
   const cleanup = () => {{
+    clearInterval(heartbeat);
+    for (const sessionId of [...running]) fire("end", sessionId);
     fire("end", lastSessionId);
   }};
   process.once("exit", cleanup);
@@ -1125,9 +1074,14 @@ export default function emberExtension(pi) {{
   on("session_start", (event, ctx) => fire("start", id(ctx, event)));
   on("before_agent_start", (event, ctx) => fire("working", id(ctx, event)));
   on("agent_start", (event, ctx) => fire("working", id(ctx, event)));
-  on("tool_call", (event, ctx) => fire("working", id(ctx, event)));
+  on("tool_call", (event, ctx) => {{
+    const name = event?.toolName || event?.tool_name;
+    fire(["ask", "ask_user", "question", "AskUserQuestion"].includes(name) ? "waiting" : "working", id(ctx, event));
+  }});
+  on("tool_execution_end", (event, ctx) => {{
+    if (["ask", "ask_user", "question", "AskUserQuestion"].includes(event?.toolName || event?.tool_name)) fire("resume", id(ctx, event));
+  }});
   on("tool_execution_start", (event, ctx) => fire("working", id(ctx, event)));
-  on("agent_settled", (event, ctx) => fire("idle", id(ctx, event)));
   on("agent_end", (event, ctx) => {{
     if (event?.willContinue === true) return;
     fire("idle", id(ctx, event));
@@ -1288,7 +1242,7 @@ pub fn status(agent: AgentId) -> InstallStatus {
             if cmds.is_empty() {
                 (false, false)
             } else {
-                let missing = cmds.len() < bindings(agent).len();
+                let missing = codex_missing_bindings(&text);
                 let bad_exe = cmds.iter().any(|c| !command_matches_running_exe(c, &exe));
                 let bad_key = codex_has_legacy_windows_key(&text, agent);
                 (true, missing || bad_exe || bad_key)
@@ -1457,6 +1411,34 @@ fn antigravity_needs_schema_repair(text: &str) -> bool {
         }
     }
     false
+}
+
+fn codex_missing_bindings(text: &str) -> bool {
+    let Ok(doc) = text.parse::<DocumentMut>() else {
+        return true;
+    };
+    bindings(AgentId::Codex).iter().any(|binding| {
+        !doc.get("hooks")
+            .and_then(Item::as_table)
+            .and_then(|h| h.get(binding.config_event))
+            .and_then(Item::as_array_of_tables)
+            .is_some_and(|groups| {
+                groups.iter().any(|g| {
+                    g.get("hooks")
+                        .and_then(Item::as_array_of_tables)
+                        .is_some_and(|handlers| {
+                            handlers.iter().any(|h| {
+                                h.get("command")
+                                    .and_then(Item::as_str)
+                                    .is_some_and(|command| {
+                                        parse_our_command(AgentId::Codex, command)
+                                            == Some(binding.ember_event)
+                                    })
+                            })
+                        })
+                })
+            })
+    })
 }
 
 fn codex_has_legacy_windows_key(text: &str, agent: AgentId) -> bool {
@@ -1725,6 +1707,51 @@ mod tests {
     }
 
     #[test]
+    fn codex_repair_checks_interrupt_binding_even_with_duplicate_other_hooks() {
+        let (rendered, _) = render_codex_toml("", AgentId::Codex, &exe(), Op::Install).unwrap();
+        assert!(!codex_missing_bindings(&rendered));
+        let mut doc = rendered.parse::<DocumentMut>().unwrap();
+        doc["hooks"].as_table_mut().unwrap().remove("Interrupt");
+        assert!(codex_missing_bindings(&doc.to_string()));
+        let (repaired, _) =
+            render_codex_toml(&doc.to_string(), AgentId::Codex, &exe(), Op::Install).unwrap();
+        assert!(!codex_missing_bindings(&repaired));
+    }
+
+    #[test]
+    fn generated_plugins_execute_lifecycle_contracts() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        for agent in [AgentId::Pi, AgentId::OhMyPi, AgentId::OpenCode] {
+            let (source, _) = render_plugin_file("", agent, &exe(), Op::Install).unwrap();
+            let mut child = Command::new("node")
+                .arg("-e")
+                .arg(include_str!(
+                    "../../../scripts/check-generated-integrations.cjs"
+                ))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("Node is required for generated integration contract tests");
+            let request = serde_json::json!({"agent":agent.id(),"source":source}).to_string();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(request.as_bytes())
+                .unwrap();
+            let result = child.wait_with_output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}: {}",
+                agent.id(),
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
+    }
+
+    #[test]
     fn hook_command_shape_matches_spec() {
         let cmd = hook_command(&exe(), AgentId::ClaudeCode, HookEvent::Working);
         assert_eq!(
@@ -1859,8 +1886,7 @@ command_windows = '"C:\Old\Place\ember.exe" hook codex start'
             "legacy snake_case key removed"
         );
         assert!(once.contains("commandWindows"), "camelCase key written");
-        let (twice, _) =
-            render_codex_toml(&once, AgentId::Codex, &exe(), Op::Install).unwrap();
+        let (twice, _) = render_codex_toml(&once, AgentId::Codex, &exe(), Op::Install).unwrap();
         assert_eq!(once, twice, "repair must be idempotent");
     }
 
@@ -1930,7 +1956,7 @@ command_windows = '"C:\Old\Place\ember.exe" hook codex start'
         let (js, _) = render_plugin_file("", AgentId::OpenCode, &exe(), Op::Install).unwrap();
 
         // A finished tool must not idle the row; only the run lifecycle ends it.
-        assert!(!js.contains("tool.execute.after"));
+        assert!(js.contains("tool.execute.after")); // only explicit question completion resumes a wait
         assert!(!js.contains("session.error\") fire"));
 
         // The v2 run lifecycle is mapped: started = Working, terminal = Idle.
@@ -1959,7 +1985,7 @@ command_windows = '"C:\Old\Place\ember.exe" hook codex start'
 
         // Mid-run idle-ish events are intentionally unmapped: only the
         // terminal execution events may end a run.
-        assert!(!js.contains(r#"case "session.idle""#));
+        assert!(js.contains(r#"case "session.idle": if(v1)"#));
         assert!(!js.contains("else if (st === \"idle\")"));
     }
 
@@ -1974,7 +2000,6 @@ command_windows = '"C:\Old\Place\ember.exe" hook codex start'
             "agent_start",
             "tool_call",
             "tool_execution_start",
-            "agent_settled",
             "agent_end",
             "session_shutdown",
         ] {
@@ -1986,6 +2011,8 @@ command_windows = '"C:\Old\Place\ember.exe" hook codex start'
         assert!(ts.contains("(event, ctx) =>"));
         assert!(ts.contains("sessionManager?.getSessionId"));
         assert!(ts.contains("event?.willContinue === true"));
+
+        assert!(!ts.contains("agent_settled"));
 
         // Stale event names must not appear
         assert!(!ts.contains("session_stop"));
@@ -2003,7 +2030,6 @@ command_windows = '"C:\Old\Place\ember.exe" hook codex start'
             "tool_call",
             "tool_execution_start",
             "agent_settled",
-            "agent_end",
             "session_shutdown",
         ] {
             assert!(ts.contains(&format!("\"{ev}\"")), "missing {ev}");
@@ -2011,7 +2037,7 @@ command_windows = '"C:\Old\Place\ember.exe" hook codex start'
         }
         assert!(ts.contains("(event, ctx) =>"));
         assert!(ts.contains("sessionManager?.getSessionId"));
-        assert!(ts.contains("event?.willContinue === true"));
+        assert!(!ts.contains("on(\"agent_end\""));
     }
 
     #[test]

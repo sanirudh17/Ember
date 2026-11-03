@@ -86,7 +86,7 @@ export const api = {
   resetWindow: () => call<void>("reset_window"),
   quitApp: () => call<void>("quit_app"),
   markClosing: () => call<void>("mark_closing"),
-  windowControl: (action: "minimize" | "toggle_maximize" | "close") =>
+  windowControl: (action: "minimize" | "toggle_maximize" | "close" | "state") =>
     call<boolean>("window_control", { action }),
   windowResize: (direction: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw") =>
     call<void>("window_resize", { direction }),

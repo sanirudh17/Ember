@@ -13,6 +13,10 @@ Ember learns whether a coding agent is working in one of two ways:
 Both run at once. A hook-managed session always wins over a process-detected one
 for the same PID (see `agents/registry.rs`).
 
+## Current audit
+
+See [AGENT_DETECTION_AUDIT.md](AGENT_DETECTION_AUDIT.md) for current verification and explicit limits. The version-specific observations below are historical evidence, not a guarantee across future agent releases.
+
 ## The one command shape
 
 Every hook Ember installs is the same command:
@@ -156,7 +160,7 @@ serde field is camelCase `commandWindows` (even inside `config.toml`), and
   terminal `session.execution.*` events close it; there are no per-step
   execution events, so a finished tool or a long silent reasoning phase can
   never idle a live run.
-- `session.idle` and `session.status` = `idle` are **deliberately not mapped**:
+- In the v2 adapter, `session.idle` and `session.status` = `idle` are **deliberately not mapped**:
   they can fire mid-run, and the terminal execution events are the single
   reliable end-of-run signal. Only a working signal may refresh a run.
 - While a run is working and silent, a background heartbeat (~30s cadence,
@@ -168,6 +172,7 @@ serde field is camelCase `commandWindows` (even inside `config.toml`), and
   hook pipe until its budget expires, and a dropped hook is recorded in
   `ember.log` (`HOOK … dropped`), so "the agent worked but Ember stayed idle"
   is always diagnosable.
+- The v1 factory adapter maps its own `session.idle` and idle status events. Both adapter lifecycles execute in the generated-code contract test.
 - **WSL:** an OpenCode install inside WSL has a different home
   (`\\wsl$\<distro>\home\<user>\...`); Ember resolves the Windows home only.
 
@@ -187,19 +192,10 @@ serde field is camelCase `commandWindows` (even inside `config.toml`), and
 | `tool_call` | `working` |
 | `tool_execution_start` | `working` |
 | `agent_settled` | `idle` |
-| `agent_end` (`willContinue !== true`) | `idle` |
 | `session_shutdown` | `end` |
 
-**Notes** (verified against `~/.omp/agent/extensions/orca-agent-status.ts`)
+**Current lifecycle:** Pi's `agent_end` is a low-level run boundary and may be followed by retry, compaction, or queued work. Only `agent_settled` ends the hold. A 30-second timer re-announces confirmed running state during quiet thinking and after Ember restarts. Idle/end/start clears that timer's running-session membership. Older Pi versions without `agent_settled` require a version-specific adapter; they are not claimed verified.
 
-- Pi and Oh My Pi share the same extension API (`pi.on(event, (event, ctx) => ...)`).
-  Modern Pi emits `agent_settled` as the terminal turn signal; legacy Pi emits
-  `agent_end` (`willContinue !== true`). Both are mapped so modern and older
-  releases transition cleanly to `idle`.
-- The npm scope moved from `@mariozechner/pi` to `@earendil-works/pi`; Ember's
-  detection lists both.
-- Ember also matches `pi.exe` and a `bun`/`node` host with a Pi path on its
-  command line.
 ---
 
 ## Oh My Pi
@@ -216,7 +212,6 @@ serde field is camelCase `commandWindows` (even inside `config.toml`), and
 | `agent_start` | `working` |
 | `tool_call` | `working` |
 | `tool_execution_start` | `working` |
-| `agent_settled` | `idle` |
 | `agent_end` (`willContinue !== true`) | `idle` |
 | `session_shutdown` | `end` |
 

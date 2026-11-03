@@ -36,7 +36,7 @@ pub mod watchdog;
 
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 
@@ -165,10 +165,7 @@ pub fn run() {
                                     );
                                 }
                                 crate::agents::registry::HookEffect::Removed => {
-                                    crate::log::append(
-                                        "HOOK",
-                                        &format!("{who} removed ({event})"),
-                                    );
+                                    crate::log::append("HOOK", &format!("{who} removed ({event})"));
                                 }
                             }
                             engine.dirty = true;
@@ -224,16 +221,7 @@ pub fn run() {
                 }
             }
 
-            shell::force_show(&window);
-
-            // Safety net: ensure the window is shown, unminimized, and focused even if delayed.
-            let show_window = window.clone();
-            std::thread::Builder::new()
-                .name("ember-show".into())
-                .spawn(move || {
-                    std::thread::sleep(Duration::from_millis(400));
-                    shell::force_show(&show_window);
-                })?;
+            // The frontend reveals the window after its first committed paint.
 
             Ok(())
         })

@@ -4,8 +4,10 @@
  * right now. Everything else Ember decides on its own.
  */
 
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
+import { Laptop, Radar } from "lucide-react";
 
+import { InterfaceIcon } from "../components/InterfaceIcon";
 import { AgentIcon } from "../components/AgentIcon";
 import { CustomHoldDialog } from "../components/CustomHoldDialog";
 import { Button, Switch } from "../components/ui";
@@ -33,13 +35,6 @@ function stateCopy(s: Snapshot): StateCopy {
       sub: s.paused_countdown
         ? `Ember resumes in ${s.paused_countdown}.`
         : "Ember is not holding this PC awake right now.",
-    };
-  }
-  if (!s.watching) {
-    return {
-      key: "off",
-      lines: ["Watching", "is off."],
-      sub: "Ember holds nothing awake while watching is off. Turn it back on to follow your agents again.",
     };
   }
   if (s.blocker === "battery_low") {
@@ -77,6 +72,13 @@ function stateCopy(s: Snapshot): StateCopy {
         : `A manual hold ends in ${s.manual.countdown}.`;
     return { key: "manual", lines: ["Holding this PC", "awake."], sub };
   }
+  if (!s.watching) {
+    return {
+      key: "off",
+      lines: ["Watching", "is off."],
+      sub: "Ember holds nothing awake while watching is off. Turn it back on to follow your agents again.",
+    };
+  }
   if (s.agents_working > 0) {
     const names = [
       ...new Set(
@@ -90,6 +92,9 @@ function stateCopy(s: Snapshot): StateCopy {
           ? `${names[0]} and ${names[1]} are working.`
           : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more are working.`;
     return { key: "agents", lines: ["Holding this PC", "awake."], sub };
+  }
+  if (s.engaged) {
+    return { key: "settling", lines: ["Finishing up."], sub: "Releasing the hold as the remaining activity settles." };
   }
   return {
     key: "idle",
@@ -120,225 +125,92 @@ function readings(s: Snapshot): { k: string; v: string }[] {
   ];
 }
 
-export function HomePage() {
+export function HomePage({ onViewAgents }: { onViewAgents: () => void }) {
   const { snapshot, settings } = useReady();
   const { apply, setWatching } = useStore();
   const { run, busy, error: actionError } = useAction();
   const [customOpen, setCustomOpen] = useState(false);
-
   const copy = stateCopy(snapshot);
   const rows = readings(snapshot);
-
   const lidUsable = snapshot.lid.present && snapshot.capabilities.lid_proof_available;
-  const lidHint = !lidUsable
-    ? "No lid switch to override on this machine."
-    : snapshot.lid.note ||
-      "Overrides the lid-close action while Ember holds this PC awake.";
+  const sessions = snapshot.sessions.slice().sort((a,b) => Number(b.state === "working") - Number(a.state === "working") || b.working_for_secs-a.working_for_secs);
 
-  const sessions = [...snapshot.sessions].sort((a, b) => {
-    if (a.state !== b.state) return a.state === "working" ? -1 : 1;
-    if (a.state === "working") return b.working_for_secs - a.working_for_secs;
-    return a.agent_name.localeCompare(b.agent_name);
-  });
-
-  return (
-    <div className="page page--awake">
-      <section className="state col">
-        <h1 className="state__line" key={copy.key}>
-          {copy.lines.map((line, index) => (
-            <span className="line" key={index}>
-              <span style={{ "--i": index } as CSSProperties}>{line}</span>
-            </span>
-          ))}
-        </h1>
-        <p
-          className="state__sub"
-          data-rise
-          style={{ "--i": copy.lines.length } as CSSProperties}
-        >
-          {copy.sub}
-        </p>
-
-        <div
-          className="actions"
-          data-rise
-          style={{ "--i": copy.lines.length + 1 } as CSSProperties}
-        >
-          {snapshot.manual.active ? (
-            <>
-              <Button
-                variant="primary"
-                disabled={busy}
-                onClick={() => run(() => api.stopManual())}
-              >
-                End hold
-              </Button>
-              <Button disabled={busy} onClick={() => run(() => api.extendManual(1800))}>
-                +30m
-              </Button>
-              <Button disabled={busy} onClick={() => run(() => api.extendManual(3600))}>
-                +1h
-              </Button>
-              {!snapshot.manual.unlimited && (
-                <span className="actions__count">
-                  {snapshot.manual.countdown} left
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              <span className="actions__label">Hold awake for</span>
-              <Button disabled={busy} onClick={() => run(() => api.startManual(1800))}>
-                30m
-              </Button>
-              <Button disabled={busy} onClick={() => run(() => api.startManual(3600))}>
-                1h
-              </Button>
-              <Button disabled={busy} onClick={() => run(() => api.startManual(7200))}>
-                2h
-              </Button>
-              <Button disabled={busy} onClick={() => setCustomOpen(true)}>
-                Custom…
-              </Button>
-              <Button disabled={busy} onClick={() => run(() => api.startManualUnlimited())}>
-                Until released
-              </Button>
-            </>
-          )}
+  return <div className="page page--awake awake-workspace">
+    <div className="awake-overview">
+    <section className={`hold-surface${snapshot.engaged ? " is-engaged" : ""}`} aria-label="Current hold">
+      <div className="hold-surface__status">
+        <div>
+          <h1 className="state__line">{copy.lines.join(" ")}</h1>
+          <p className="state__sub">{copy.sub}</p>
         </div>
-        {actionError && (
-          <p className="meta" role="alert">
-            {actionError}
-          </p>
-        )}
-      </section>
 
-      {/* The dialog lives at page level, never inside an animated subtree:
-          a frozen entrance transform would capture its fixed scrim. */}
-      {customOpen && (
-        <CustomHoldDialog open={customOpen} onClose={() => setCustomOpen(false)} />
-      )}
-
-      <section className="section band" data-reveal>
-        <div className="field wide" data-ui>
-          <div className="field__grid">
-            {rows.map((row, index) => (
-              <div
-                className="readout"
-                key={row.k}
-                data-rise
-                style={{ "--i": index } as CSSProperties}
-              >
-                <div className="readout__k">{row.k}</div>
-                <div className="readout__v">{row.v}</div>
-              </div>
-            ))}
-          </div>
+      </div>
+      <div className="hold-toolbar">
+        <span className="hold-toolbar__label">Manual hold</span>
+        <div className="actions">
+          {snapshot.manual.active ? <>
+            <Button variant="primary" disabled={busy} onClick={() => run(() => api.stopManual())}>End hold</Button>
+            <Button disabled={busy} onClick={() => run(() => api.extendManual(1800))}>+30m</Button>
+            <Button disabled={busy} onClick={() => run(() => api.extendManual(3600))}>+1h</Button>
+          </> : <>
+            <Button disabled={busy} onClick={() => run(() => api.startManual(1800))}>30m</Button>
+            <Button disabled={busy} onClick={() => run(() => api.startManual(3600))}>1h</Button>
+            <Button disabled={busy} onClick={() => run(() => api.startManual(7200))}>2h</Button>
+            <Button disabled={busy} onClick={() => setCustomOpen(true)}>Custom{"\u2026"}</Button>
+            <Button disabled={busy} onClick={() => run(() => api.startManualUnlimited())}>Until released</Button>
+          </>}
         </div>
-      </section>
-
-      <section className="section wide section--ctrls" data-reveal>
-        <div className="panel panel--ctrls">
-          <div className="ctrl" data-rise style={{ "--i": 0 } as CSSProperties}>
-            <div>
-              <div className="ctrl__label">Watch for agents</div>
-              <div className="ctrl__hint">
-                Keeps this PC awake while any agent is working, and lets go when they
-                stop.
-              </div>
-            </div>
-            <Switch
-              label="Watch for agents"
-              checked={settings.watching}
-              onChange={(next) => void setWatching(next)}
-            />
-          </div>
-          <div className="ctrl" data-rise style={{ "--i": 1 } as CSSProperties}>
-            <div>
-              <div className="ctrl__label">Lid-proof</div>
-              <div className="ctrl__hint">{lidHint}</div>
-            </div>
-            <Switch
-              label="Lid-proof"
-              checked={settings.lid_proof}
-              disabled={!lidUsable}
-              title={!lidUsable ? "No lid switch to override on this machine." : undefined}
-              onChange={(next) => apply({ lid_proof: next })}
-            />
-          </div>
-        </div>
-      </section>
-
-      <section className="section wide section--working" data-reveal>
-        <h2 className="h2">Working now</h2>
-        <p className="meta">
-          {snapshot.agents_working > 0
-            ? `${plural(snapshot.agents_working, "agent", "agents")} working · ${plural(snapshot.watched_agents, "agent", "agents")} watched`
-            : `Nothing working · ${plural(snapshot.watched_agents, "agent", "agents")} watched`}
-        </p>
-        {sessions.length > 0 ? (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Agent</th>
-                <th>Folder</th>
-                <th className="hide-sm">State</th>
-                <th className="num">For</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.map((session, index) => (
-                <tr
-                  key={session.session_id || `${session.agent}:${session.folder}`}
-                  data-rise
-                  style={{ "--i": index } as CSSProperties}
-                  className={session.state === "working" ? "row--working" : undefined}
-                >
-                  <td>
-                    <span className="agent-cell">
-                      <AgentIcon
-                        agent={session.agent}
-                        monogram={session.monogram}
-                        size={16}
-                      />
-                      <span className="agent-cell__name">{session.agent_name}</span>
-                    </span>
-                  </td>
-                  <td>{session.folder}</td>
-                  <td className="hide-sm">
-                    {session.state === "working" ? (
-                      <>
-                        <span className="sdot" />
-                        <span className="state-label">Working</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="sdot sdot--idle" />
-                        <span className="state-label">Idle</span>
-                      </>
-                    )}
-                  </td>
-                  <td className="num">
-                    {session.state === "working" ? duration(session.working_for_secs) : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p className="empty-line">
-            Nothing is running right now. Start a coding agent and it will appear here.
-          </p>
-        )}
-      </section>
-
-      <footer className="pagefoot">
-        <span>
-          Ember keeps this PC awake while its agents work — and gives it back when they
-          stop.
-        </span>
-        <span>{snapshot.capabilities.os_name}</span>
-      </footer>
+      </div>
+      {actionError && <p className="meta" role="alert">{actionError}</p>}
+    </section>
+    <section className="awake-summary" aria-label="Hold and device status">
+      {rows.map((row,index) => <div className="summary-reading" key={row.k}>
+        <span>{index === 0 && snapshot.manual.active && !snapshot.manual.unlimited ? "Remaining" : row.k}</span>
+        <strong>{index === 0 && snapshot.manual.active && !snapshot.manual.unlimited ? snapshot.manual.countdown : row.v}</strong>
+      </div>)}
+    </section>
     </div>
-  );
+
+    <section className="awake-automation" aria-label="Automatic holds">
+      <div className={`automation-option${settings.watching ? " is-enabled" : ""}`}>
+        <Radar size={19} className="automation-option__icon" aria-hidden="true" />
+        <div className="automation-option__copy">
+          <div className="ctrl__label">Watch for agents</div>
+          <p className="ctrl__hint">Hold automatically while any of your {snapshot.watched_agents} watched tools is working.</p>
+        </div>
+        <div className="automation-option__control">
+          <span aria-hidden="true">{settings.watching ? "On" : "Off"}</span>
+          <Switch label="Watch for agents" checked={settings.watching} onChange={next => void setWatching(next)} />
+        </div>
+      </div>
+      <div className={`automation-option${settings.lid_proof ? " is-enabled" : ""}`}>
+        <Laptop size={19} className="automation-option__icon" aria-hidden="true" />
+        <div className="automation-option__copy">
+          <div className="ctrl__label">Lid-proof</div>
+          <p className="ctrl__hint">{!lidUsable ? "No lid switch available." : snapshot.lid.note || "Keep working with the lid closed during a hold."}</p>
+        </div>
+        <div className="automation-option__control">
+          <span aria-hidden="true">{!lidUsable ? "Unavailable" : settings.lid_proof ? "On" : "Off"}</span>
+          <Switch label="Lid-proof" checked={settings.lid_proof} disabled={!lidUsable} onChange={next => apply({lid_proof:next})} />
+        </div>
+      </div>
+    </section>
+
+    <section className="awake-sessions">
+      <div className="sechead"><h2 className="h2">Sessions <span className="count-label">{sessions.length} open {"\u00b7"} {snapshot.agents_working} working</span></h2>
+        <Button variant="ghost" size="sm" onClick={onViewAgents}>View agents</Button></div>
+      {sessions.length ? <div className="active-session-list">{sessions.map(session =>
+        <div className="active-session" key={`${session.agent}:${session.session_id}`}>
+          <AgentIcon agent={session.agent} size={20} />
+          <div><span>{session.agent_name}</span><small>{session.folder}</small></div>
+          <span className="active-session__time">{session.state === "working" ? duration(session.working_for_secs) : "Idle"}</span>
+        </div>
+      )}</div> : <div className="awake-empty">
+        <InterfaceIcon name="agents" size={30} /><span>No agents working</span>
+        <small>Start a coding agent. Its activity will appear here.</small>
+      </div>}
+    </section>
+
+    {customOpen && <CustomHoldDialog open={customOpen} onClose={() => setCustomOpen(false)} />}
+  </div>;
 }

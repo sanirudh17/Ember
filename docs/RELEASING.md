@@ -64,3 +64,7 @@ local builds only need the signed installer.
 - Code signing (Authenticode) is separate from update signing: Windows
   SmartScreen may still warn on a fresh installer until the publisher
   certificate is set up in the bundle configuration.
+
+## Verified local publication
+
+After scripts/build-release.ps1, run node scripts/verify-release.mjs. This verifies installer signing against the public key shipped in v1.0.0, rejects tampered bytes, verifies the trusted comment, and writes a BOM-free latest.json plus SHA256SUMS.txt beside the installer. Publish these exact four assets against the tested main commit; avoid a competing tag-triggered CI build replacing them. Download every public asset again and compare hashes. Test Check now in the previous executable after publication.

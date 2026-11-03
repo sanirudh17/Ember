@@ -101,15 +101,13 @@ export function AgentsPage() {
   });
 
   return (
-    <div className="page">
+    <div className="page page--agents">
       <header className="pagehead col">
         <h1 className="h1" data-rise style={{ "--i": 0 } as CSSProperties}>
           Agents
         </h1>
         <p className="sub" data-rise style={{ "--i": 1 } as CSSProperties}>
-          Ember watches these tools and holds this PC awake while any of them works.
-          Hook integrations give it exact session timing; everything else is watched
-          by process activity.
+          Your coding tools, connected to Ember.
         </p>
       </header>
 
@@ -143,7 +141,7 @@ export function AgentsPage() {
                 <tr key={a.id} data-rise style={{ "--i": index } as CSSProperties}>
                   <td>
                     <span className="agent-cell">
-                      <AgentIcon agent={a.id} monogram={a.monogram} size={16} />
+                      <AgentIcon agent={a.id} monogram={a.monogram} size={20} />
                       <span className="agent-cell__name">{a.name}</span>
                     </span>
                   </td>
@@ -192,7 +190,7 @@ export function AgentsPage() {
         )}
       </section>
 
-      <section className="section wide" data-reveal>
+      <section className="section wide agent-sessions" data-reveal>
         <h2 className="h2" data-rise style={{ "--i": 0 } as CSSProperties}>
           Sessions
         </h2>

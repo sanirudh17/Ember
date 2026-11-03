@@ -7,13 +7,13 @@
 
 import type { AgentId } from "../types";
 
-import antigravitySvg from "../assets/agents/antigravity-color.svg";
-import claudeCodeSvg from "../assets/agents/claudecode-color.svg";
+import antigravitySvg from "../assets/agents/antigravity-mono.svg";
+import claudeCodeSvg from "../assets/agents/claude-mono.svg";
 import clineSvg from "../assets/agents/cline.svg";
-import codexSvg from "../assets/agents/codex-color.svg";
+import codexSvg from "../assets/agents/codex-mono.svg";
 import ohMyPiSvg from "../assets/agents/oh-my-pi.svg";
-import opencodeSvg from "../assets/agents/opencode.svg";
-import piSvg from "../assets/agents/pi.svg";
+import opencodeSvg from "../assets/agents/opencode-mono.svg";
+import piSvg from "../assets/agents/pi-mono.svg";
 
 const ICONS: Record<string, { src: string; alt: string; mono?: boolean }> = {
   "claude-code": { src: claudeCodeSvg, alt: "Claude Code" },
@@ -50,17 +50,7 @@ export function AgentIcon({
   }
 
   return (
-    <img
-      className={`agent-icon${icon.mono ? " agent-icon--mono" : ""}${
-        className ? ` ${className}` : ""
-      }`}
-      src={icon.src}
-      alt=""
-      width={size}
-      height={size}
-      loading="eager"
-      draggable={false}
-      style={{ width: size, height: size, objectFit: "contain", display: "block" }}
-    />
+    <span className={`agent-icon agent-icon--glyph ${className}`} aria-hidden="true"
+      style={{ width: size, height: size, maskImage: `url("${icon.src}")`, WebkitMaskImage: `url("${icon.src}")` }} />
   );
 }

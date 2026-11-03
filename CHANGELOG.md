@@ -2,6 +2,29 @@
 
 All notable changes to [Ember](https://github.com/sanirudh17/Ember) are documented here.
 
+## [v1.1.0] - 2026-11-03
+
+### Changed
+
+- Redesigned the desktop workspace with a unified sidebar, responsive Awake overview, manual hold group, open/working session counts, and clearer settings sections.
+- Applied the supplied Ember icon across the app, tray, taskbar, installer, and README. Refined agent icons, font loading, light-theme contrast, blue-black dark surfaces, and subtle 3px scrollbars.
+- Normal windows default to 1100 by 700 logical pixels and retain user size, placement, and maximization. First display waits for themed content; maximization transition frames no longer overwrite normal geometry.
+
+### Fixed
+
+- Shared ACP server background CPU no longer creates a working hold. Codex app-server and OpenCode serve processes rely on their session hooks rather than shared-server CPU.
+- Explicit user-question waits and guarded resume transitions cannot revive a cancelled or closed session. Late tool callbacks cannot create phantom open sessions, and a dead process no longer earns an invisible recovery hold.
+- OpenCode v1/v2 retain work through reasoning, retries, and ordinary tool completion; pending permission, question, and form requests suspend the hold until valid replies or terminal completion.
+- Pi uses final agent_settled (including Escape) rather than mid-retry agent_end; UI prompt waits suspend activity. Oh My Pi preserves nonterminal continuations and handles explicit question-tool waits.
+- Codex Interrupt, Claude StopFailure, compacting session starts, and post-tool callbacks have dedicated lifecycle handling. Hook ownership prevents CPU estimates from reactivating a completed turn.
+- Preserved battery, display, manual timer, and reversible lid-close safeguards.
+
+### Upgrade notes
+
+- In Agents, repair existing hooks and restart/reload each agent host to load new bindings. Review changed Codex hooks in its normal trust flow.
+- Cline and CLI instances without working hooks use approximate CPU fallback. Exact reasoning, approval, or Escape boundaries require events from the host; universal instantaneous detection is not claimed.
+- This release retains the v1.0.0 update endpoint and signing key for in-place updates.
+
 ## [v1.0.0] - 2026-10-17
 
 ### Added

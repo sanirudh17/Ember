@@ -28,7 +28,7 @@ export function Button({
     .join(" ");
   return (
     <button type="button" className={cls} onClick={onClick} disabled={disabled} title={title}>
-      {children}
+      <span className="control-label">{children}</span>
     </button>
   );
 }
@@ -91,7 +91,7 @@ export function Segmented<T extends string>({
           className={`seg__btn${value === o.value ? " is-active" : ""}`}
           onClick={() => onChange(o.value)}
         >
-          {o.label}
+          <span className="control-label">{o.label}</span>
         </button>
       ))}
     </div>

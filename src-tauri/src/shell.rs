@@ -28,8 +28,16 @@ const LOOP_INTERVAL: Duration = Duration::from_millis(250);
 
 /// Ember's default window size, in logical pixels. Wide enough to open in
 /// the dashboard form; the layout folds to one column below 1040px.
-pub const DEFAULT_WIDTH: u32 = 1160;
-pub const DEFAULT_HEIGHT: u32 = 740;
+pub const DEFAULT_WIDTH: u32 = 1100;
+pub const DEFAULT_HEIGHT: u32 = 700;
+
+/// Ignore maximization transition frames when remembering normal geometry.
+pub fn oversized_restore(width: u32, height: u32, monitor_width: u32, monitor_height: u32) -> bool {
+    monitor_width > 0
+        && monitor_height > 0
+        && width >= monitor_width * 94 / 100
+        && height >= monitor_height * 90 / 100
+}
 
 /// Restore size, position and maximised state, clamping onto a real monitor.
 pub fn place_window(window: &WebviewWindow, settings: &Settings) {
@@ -37,7 +45,10 @@ pub fn place_window(window: &WebviewWindow, settings: &Settings) {
     let is_max = window.is_maximized().unwrap_or(false);
     let is_min = window.is_minimized().unwrap_or(false);
     if !is_max && !is_min {
-        if ws.placed && ws.x.is_some() && ws.y.is_some() {
+        let stale_fullscreen = window.current_monitor().ok().flatten().is_some_and(|m| {
+            oversized_restore(ws.width, ws.height, m.size().width, m.size().height)
+        });
+        if ws.placed && ws.x.is_some() && ws.y.is_some() && !stale_fullscreen {
             let monitors = monitor_rects(window);
             let (x, y) = clamp_rect(
                 ws.x.unwrap_or(0),
@@ -54,12 +65,23 @@ pub fn place_window(window: &WebviewWindow, settings: &Settings) {
                 f64::from(DEFAULT_HEIGHT),
             ));
             let _ = window.center();
+            // A utility sits slightly above center, clear of the taskbar.
+            if let Ok(position) = window.outer_position() {
+                let scale = window.scale_factor().unwrap_or(1.0);
+                let top = window
+                    .current_monitor()
+                    .ok()
+                    .flatten()
+                    .map(|m| m.position().y)
+                    .unwrap_or(0);
+                let y = (position.y - (40.0 * scale) as i32).max(top + (24.0 * scale) as i32);
+                let _ = window.set_position(PhysicalPosition::new(position.x, y));
+            }
         }
     }
     if ws.maximized && !is_max {
         let _ = window.maximize();
     }
-    force_show(window);
 }
 
 /// Bring the window to the foreground robustly. `show`/`unminimize`/`set_focus`
@@ -138,7 +160,10 @@ pub fn remember_window(window: &WebviewWindow, ember: &Ember) {
         return;
     };
     let ws = &mut engine.settings.window;
-    if !maximized {
+    let fullscreen_frame = window.current_monitor().ok().flatten().is_some_and(|m| {
+        oversized_restore(size.width, size.height, m.size().width, m.size().height)
+    });
+    if !maximized && !fullscreen_frame {
         ws.x = Some(position.x);
         ws.y = Some(position.y);
         ws.width = size.width.max(760);
@@ -293,13 +318,21 @@ pub fn spawn_loop(app: AppHandle, window: WebviewWindow) {
                     } else {
                         None
                     };
-                    let _ = window.set_overlay_icon(icon);
-                    last_overlay = Some(outcome.snapshot.engaged);
+                    if window.set_overlay_icon(icon).is_ok() {
+                        last_overlay = Some(outcome.snapshot.engaged);
+                    }
                 }
 
                 // --- notifications -------------------------------------------
-                for notify in &outcome.notifications {
-                    fire(&app, &settings.notifications, *notify);
+                if !settings.notifications.mute {
+                    for notify in &outcome.toasts {
+                        let (_, title, body) = notify_parts(*notify);
+                        toast(&app, title, body);
+                    }
+                    for notify in &outcome.notifications {
+                        let (chime, _, _) = notify_parts(*notify);
+                        sound::play(chime, NOTIFY_VOLUME);
+                    }
                 }
 
                 // --- emit ------------------------------------------------------
@@ -350,6 +383,13 @@ mod tests {
     const TWO: (i32, i32, u32, u32) = (1920, 0, 2560, 1440);
 
     #[test]
+    fn maximized_transition_dimensions_are_not_a_normal_window_size() {
+        assert!(oversized_restore(1920, 1057, 1920, 1080));
+        assert!(!oversized_restore(1075, 775, 1920, 1080));
+        assert!(!oversized_restore(860, 620, 1920, 1080));
+    }
+
+    #[test]
     fn an_on_screen_position_is_left_alone() {
         assert_eq!(clamp_rect(200, 120, 1000, 720, &[ONE, TWO]), (200, 120));
         assert_eq!(clamp_rect(2100, 200, 1000, 720, &[ONE, TWO]), (2100, 200));
@@ -384,7 +424,7 @@ mod tests {
 
     #[test]
     fn defaults_are_the_documented_window_size() {
-        assert_eq!((DEFAULT_WIDTH, DEFAULT_HEIGHT), (1160, 740));
+        assert_eq!((DEFAULT_WIDTH, DEFAULT_HEIGHT), (1100, 700));
     }
 
     #[test]

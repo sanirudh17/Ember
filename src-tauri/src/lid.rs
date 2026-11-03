@@ -346,11 +346,8 @@ pub fn engage_at(api: &dyn PowerApi, state_path: &Path) -> Result<LidHold, Strin
     write_state_at(state_path, &hold.to_state())?;
 
     let rollback = |api: &dyn PowerApi| {
-        let g = hold.scheme.to_guid();
-        let _ = api.write_ac(&g, ac);
-        let _ = api.write_dc(&g, dc);
-        let _ = api.set_active(&g);
-        delete_state_at(state_path);
+        // Keep the undo record if rollback fails, so startup/watchdog can retry.
+        let _ = restore_at(api, &hold, state_path);
     };
 
     if let Err(e) = api
@@ -488,6 +485,20 @@ mod tests {
             self.log.lock().unwrap().push("active".into());
             Ok(())
         }
+    }
+
+    #[test]
+    fn failed_engage_and_failed_rollback_preserve_recovery_record() {
+        let api = FakePower::new(0x9876, 3, 2);
+        let path = state_path("failed_rollback_record");
+        let _ = std::fs::remove_file(&path);
+        api.fail_write.store(true, Ordering::SeqCst);
+        assert!(engage_at(&api, &path).is_err());
+        assert!(path.exists());
+        api.fail_write.store(false, Ordering::SeqCst);
+        let saved = read_state_at(&path).unwrap();
+        restore_at(&api, &LidHold::from_state(&saved), &path).unwrap();
+        assert!(!path.exists());
     }
 
     #[test]

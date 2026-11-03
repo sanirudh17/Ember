@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="src-tauri/icons/128x128@2x.png" width="112" alt="Ember icon" />
+<img src="app-icon.png" width="112" alt="Ember icon" />
 
 # Ember
 
@@ -17,13 +17,21 @@ Ember notices when Claude Code, Codex, OpenCode, Pi, Oh My Pi, Antigravity or Cl
 
 ---
 
+## Detection and window behavior
+
+Ember also recognizes Antigravity's `agy_acp_server.exe` when launched by GUI clients. Shared ACP transport CPU alone does not earn a hold; session hooks must report the actual work. Hooks are authoritative: opening a session does not engage a hold, and an explicit idle/end event does not inherit a long live-process grace. Codex interruption is handled as idle (repair existing hooks to install this binding).
+
+Process-only detection remains an estimate. It uses sustained CPU activity, a startup settle period, and a short quiet window; it cannot guarantee immediate turn detection during network waits or distinguish every typing burst. Prefer hooks where supported. Toasts follow visible state changes; repeated sounds are throttled separately.
+
+The default window is 1100 by 700 and remembers its geometry and maximized state. Startup waits for the themed frontend to paint. The supplied Ember artwork is used in the app, tray, taskbar, and installer; run `npm run icon` to regenerate sizes without replacing the source artwork.
+
 ## Overview
 
 Ember is a keep-awake companion for Windows aimed at people who leave long agent runs unattended. It watches the coding agents you actually use, and holds the machine awake exactly while any of them is working. When the last one finishes, Ember lets go.
 
 The usual keep-awake tool is a toggle you forget: you turn it on and your laptop never sleeps again, or you forget it and a multi-hour agent run gets suspended halfway. Ember replaces the toggle with detection. Busy machines stay awake, quiet machines sleep like normal, and you never think about it.
 
-> **New here?** Install the single `Ember_1.0.0_x64-setup.exe` from [Releases](https://github.com/sanirudh17/Ember/releases/latest) and run it. Ember lives in the tray and updates itself from then on.
+> **New here?** Install the single `Ember_1.1.0_x64-setup.exe` from [Releases](https://github.com/sanirudh17/Ember/releases/latest) and run it. Ember lives in the tray and updates itself from then on.
 
 ---
 
@@ -50,7 +58,7 @@ The usual keep-awake tool is a toggle you forget: you turn it on and your laptop
 **A hold that matches the work**
 
 - **Exactly while agents work.** Ember takes the hold when a coding agent starts working and releases it when the last one stops — no timers to set, no toggles to remember.
-- **Long sessions are safe.** Silent reasoning phases, long tool runs and multi-hour sessions never release early: hook-managed runs carry heartbeats, and the registry only ends a run on a real terminal signal.
+- **Long sessions are safe.** Hook-managed runs retain work through reasoning and ordinary tool completion. Plugin integrations refresh long runs; explicit waiting, completion, interruption, or process exit releases the session.
 - **Two signals, one truth.** Hooks are authoritative; process detection corroborates. If an agent renames an event between releases, detection degrades gracefully instead of breaking. A hook-managed session always wins over a process-detected one for the same PID.
 
 **Closed-lid support**
@@ -75,7 +83,7 @@ The usual keep-awake tool is a toggle you forget: you turn it on and your laptop
 
 ## How It Works
 
-Everything between "agent got a prompt" and "PC stays awake" runs as one decision pipeline. Either signal alone is enough to hold; together they outlive any single agent's API drift.
+Everything between "agent got a prompt" and "PC stays awake" runs as one decision pipeline. A hook-managed session owns its process state. CPU fallback fills gaps for standalone CLI processes; shared servers require session events.
 
 ```
   any agent moving?
@@ -144,7 +152,7 @@ Download the latest installer from the [**Releases**](https://github.com/sanirud
 
 | Installer | Notes |
 | --- | --- |
-| **`Ember_1.0.0_x64-setup.exe`** | NSIS installer — single executable, no extra dependencies. Recommended. |
+| **`Ember_1.1.0_x64-setup.exe`** | NSIS installer — single executable, no extra dependencies. Recommended. |
 
 The installer is currently unsigned, so Windows SmartScreen may show *"Windows protected your PC"* → **More info → Run anyway**.
 
@@ -186,7 +194,7 @@ npm run tauri dev
 
 ```bash
 npm run tauri build
-# → src-tauri/target/release/bundle/nsis/Ember_1.0.0_x64-setup.exe
+# → src-tauri/target/release/bundle/nsis/Ember_1.1.0_x64-setup.exe
 ```
 
 **Run the test suite**
@@ -295,3 +303,9 @@ Released under the [MIT License](LICENSE). © 2026 Sanirudh ([sanirudh17](https:
 ## Acknowledgements
 
 Built with [Tauri](https://v2.tauri.app/). Agent integrations follow each tool's own documented hook or extension surface — the full per-agent matrix, including the pitfalls each one had on Windows, lives in [`docs/AGENT_INTEGRATIONS.md`](docs/AGENT_INTEGRATIONS.md).
+
+### Detection coverage in v1.1.0
+
+Reasoning and tool execution belong to the enclosing turn; finishing one tool is not finishing the turn. Explicit user-question/UI waits suspend a hold when the host exposes those events. Cancellation and session closure cannot be undone by late tool callbacks. See [the agent audit](docs/AGENT_DETECTION_AUDIT.md) for the tested sequences and host-specific limits.
+
+After updating, use **Agents > Repair hooks** for existing integrations and restart/reload their host processes. Codex may request normal trust review for changed hooks. Process-only Cline and hosts that do not load hooks remain estimates; CPU cannot reliably distinguish network-only reasoning, approvals, and Escape.

@@ -27,7 +27,10 @@ Write-Host "Building Ember (release, signed)..."
 Push-Location $root
 try {
     npm run tauri build
+    if ($LASTEXITCODE -ne 0) { throw "Tauri build failed with exit code $LASTEXITCODE" }
 } finally {
+    Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
+    Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
     Pop-Location
 }
 

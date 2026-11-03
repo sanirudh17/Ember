@@ -9,7 +9,9 @@
 import { useEffect, useState } from "react";
 import { Copy, Minus, Square, X } from "lucide-react";
 
-import { api } from "../lib/api";
+import { InterfaceIcon } from "./InterfaceIcon";
+
+import { api, IS_TAURI } from "../lib/api";
 import { useStore } from "../lib/store";
 
 export type Route = "awake" | "agents" | "settings";
@@ -27,12 +29,11 @@ export function TopBar({
   route: Route;
   onNavigate: (route: Route) => void;
 }) {
-  const { snapshot, update } = useStore();
+  const { update, snapshot } = useStore();
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
-    const onResize = () =>
-      setMaximized(window.innerHeight >= window.screen.availHeight - 2);
+    const onResize = () => { void api.windowControl("state").then(setMaximized).catch(() => {}); };
     onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
@@ -47,31 +48,17 @@ export function TopBar({
     }
   }
 
-  const awake = snapshot?.engaged ?? false;
+
 
   return (
+    <>
     <header className="topbar" data-tauri-drag-region>
       <div className="topbar__lead" data-tauri-drag-region>
-        <span
-          className={`topbar__dot${awake ? " is-awake" : ""}`}
-          aria-hidden="true"
-        />
+        <img src={new URL("../assets/ember.png", import.meta.url).href} width="24" height="24" alt="" />
         <span className="topbar__name">Ember</span>
       </div>
+      {!IS_TAURI && <span className="preview-note">Design preview - sample data</span>}
       <div className="topbar__spacer" data-tauri-drag-region />
-      <nav className="topbar__nav" aria-label="Primary">
-        {LINKS.map((link) => (
-          <button
-            key={link.id}
-            type="button"
-            className={`navlink${route === link.id ? " is-active" : ""}`}
-            aria-current={route === link.id ? "page" : undefined}
-            onClick={() => onNavigate(link.id)}
-          >
-            {link.label}
-          </button>
-        ))}
-      </nav>
       {update && (
         <button
           type="button"
@@ -107,5 +94,23 @@ export function TopBar({
         <X size={15} />
       </button>
     </header>
+    <aside className="sidebar">
+      <nav className="sidebar__nav" aria-label="Primary">
+        {LINKS.map((link) => {
+          return <button key={link.id} type="button"
+            className={`navlink${route === link.id ? " is-active" : ""}`}
+            aria-current={route === link.id ? "page" : undefined}
+            onClick={() => onNavigate(link.id)}>
+            <InterfaceIcon name={link.id} /><span>{link.label}</span>
+          </button>;
+        })}
+      </nav>
+      <div className="sidebar__status">
+        <span className={`sidebar__signal${snapshot?.engaged ? " is-awake" : ""}`} />
+        <div><span>{snapshot?.engaged ? "Keeping awake" : "Standing by"}</span>
+        <small>{snapshot?.watched_agents ?? 0} tools watched</small></div>
+      </div>
+    </aside>
+    </>
   );
 }

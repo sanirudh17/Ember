@@ -217,6 +217,7 @@ pub fn decode(line: &str, token: &str) -> Result<Option<HookMessage>, String> {
         AgentId::parse(&wire.agent).ok_or_else(|| format!("unknown agent {:?}", wire.agent))?;
     let event =
         HookEvent::parse(&wire.event).ok_or_else(|| format!("unknown event {:?}", wire.event))?;
+    let event = classify_tool_event(event, &wire.payload);
     let ctx = parse_hook_payload(agent, &wire.payload);
     let pid = wire.pid.or(ctx.pid);
     Ok(Some(HookMessage {
@@ -227,6 +228,34 @@ pub fn decode(line: &str, token: &str) -> Result<Option<HookMessage>, String> {
         pid,
         ts: wire.ts,
     }))
+}
+
+/// Questions suspend a run; ordinary tools keep their enclosing run active.
+fn classify_tool_event(event: HookEvent, payload: &str) -> HookEvent {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
+        return event;
+    };
+    if event == HookEvent::Start && value.get("source").and_then(|v| v.as_str()) == Some("compact")
+    {
+        return HookEvent::Heartbeat;
+    }
+    if event != HookEvent::Working {
+        return event;
+    }
+    match value
+        .get("tool_name")
+        .or_else(|| value.get("toolName"))
+        .and_then(|v| v.as_str())
+    {
+        Some(
+            "AskUserQuestion"
+            | "ExitPlanMode"
+            | "request_user_input"
+            | "ask_user"
+            | "ask_followup_question",
+        ) => HookEvent::Waiting,
+        _ => event,
+    }
 }
 
 #[cfg(test)]
@@ -244,6 +273,37 @@ mod tests {
             ts: 1_700_000_000,
         })
         .unwrap()
+    }
+
+    #[test]
+    fn only_explicit_question_tools_suspend_work_and_compaction_preserves_it() {
+        for name in [
+            "AskUserQuestion",
+            "request_user_input",
+            "ExitPlanMode",
+            "ask_followup_question",
+        ] {
+            assert_eq!(
+                classify_tool_event(
+                    HookEvent::Working,
+                    &serde_json::json!({"tool_name":name}).to_string()
+                ),
+                HookEvent::Waiting
+            );
+        }
+        for name in ["Bash", "Read", "apply_patch", "mcp__server__tool"] {
+            assert_eq!(
+                classify_tool_event(
+                    HookEvent::Working,
+                    &serde_json::json!({"tool_name":name}).to_string()
+                ),
+                HookEvent::Working
+            );
+        }
+        assert_eq!(
+            classify_tool_event(HookEvent::Start, r#"{"source":"compact"}"#),
+            HookEvent::Heartbeat
+        );
     }
 
     #[test]
