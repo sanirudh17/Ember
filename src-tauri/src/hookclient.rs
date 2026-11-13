@@ -146,6 +146,18 @@ fn post(agent: AgentId, event: &str, payload: &str, budget: Duration) -> Result<
     let ctx = crate::agents::parse_hook_payload(agent, payload);
     let resolved_pid = ctx.pid.or_else(|| find_agent_pid(agent));
 
+    if let Some(event) = crate::agents::registry::HookEvent::parse(event) {
+        let message = crate::agents::registry::HookMessage {
+            agent,
+            event: crate::agents::hookserver::classify_tool_event(event, payload),
+            session_id: ctx.session_id.clone(),
+            cwd: ctx.cwd.clone(),
+            pid: resolved_pid,
+            ts: now_unix(),
+        };
+        crate::agents::activity_cache::record(&message);
+    }
+
     let wire = HookWire {
         v: PROTOCOL_VERSION,
         token,

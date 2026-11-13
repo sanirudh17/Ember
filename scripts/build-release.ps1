@@ -26,7 +26,10 @@ if (Test-Path $passwordFile) {
 Write-Host "Building Ember (release, signed)..."
 Push-Location $root
 try {
-    npm run tauri build
+    # Tauri writes normal progress to stderr. Windows PowerShell's npm wrapper
+    # can promote that into NativeCommandError under ErrorActionPreference=Stop.
+    # Merge the native streams in cmd and judge the actual process exit code.
+    & $env:ComSpec /d /c "npm run tauri build 2>&1"
     if ($LASTEXITCODE -ne 0) { throw "Tauri build failed with exit code $LASTEXITCODE" }
 } finally {
     Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue

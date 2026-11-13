@@ -190,3 +190,18 @@
 :root, :root[data-theme="dark"] { --chrome: #06080b; --bg: #090c10; --surface: #11151d; --hover: #1a202b; --glass-edge: #252c37; --glass-strong: #202732; }
 :root[data-theme="light"] { --chrome: #e5e9f0; --bg: #fbfcfe; --surface: #eaf0f6; --hover: #e0e7f0; --glass-edge: #ccd5e2; --glass-strong: #d6dfeb; }
 .hold-toolbar { border-color: color-mix(in srgb,var(--glass-edge) 65%,transparent); }
+
+/* Neutral graphite: warm white text and amber controls on quiet charcoal. */
+:root, :root[data-theme="dark"] {
+  --chrome: #171717;
+  --bg: #111213;
+  --surface: #1b1c1e;
+  --hover: #252628;
+  --ink: #efefed;
+  --muted: #adaeaf;
+  --track: #353638;
+  --glass-solid: #1b1c1e;
+  --glass-strong: #292a2c;
+  --glass-edge: #303133;
+  --accent-ink: #21180d;
+}

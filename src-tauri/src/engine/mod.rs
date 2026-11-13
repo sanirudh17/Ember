@@ -30,7 +30,7 @@ pub use manual::{Manual, ManualMode, PRESETS_MIN, clock, preset_label};
 pub use snapshot::*;
 
 /// How often the process tree is polled.
-const PROCESS_POLL: Duration = Duration::from_secs(2);
+const PROCESS_POLL: Duration = Duration::from_secs(1);
 /// How often the battery is re-read even without a power broadcast.
 const BATTERY_POLL: Duration = Duration::from_secs(10);
 /// How often install/detection state is recomputed while agents work.
@@ -50,10 +50,9 @@ pub const VISIBILITY_HOLD_DELAY: Duration = Duration::from_secs(1);
 /// re-engaging) stays visible but silent. Manual holds and battery releases
 /// always notify.
 pub const NOTIFY_EPISODE_DEBOUNCE: Duration = Duration::from_secs(60);
-/// Once a hold is up, the agent signal must stay dark for this long before
-/// the hold drops. Absorbs sub-second flicker from multi-row races and
-/// one-sample detector glitches without touching any classification gate.
-pub const RELEASE_FLOOR: Duration = Duration::from_secs(3);
+/// Authoritative completion releases on the next engine tick. Approximate
+/// process activity already has its own bounded hysteresis in the registry.
+pub const RELEASE_FLOOR: Duration = Duration::ZERO;
 
 /// A user-visible transition worth a notification.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -94,6 +93,7 @@ pub struct Engine {
     pub settings: Settings,
     pub registry: Registry,
     pub detector: ProcessDetector,
+    harness: crate::agents::harness::HarnessReader,
     pub manual: Manual,
     pub paused: bool,
     pub paused_until_unix: Option<u64>,
@@ -165,6 +165,7 @@ impl Engine {
             settings,
             registry: Registry::new(),
             detector: ProcessDetector::new(),
+            harness: crate::agents::harness::HarnessReader::default(),
             manual: Manual::default(),
             paused: false,
             paused_until_unix: None,
@@ -201,7 +202,19 @@ impl Engine {
         engine.refresh_agent_info();
         // Prime the registry so `alive` is populated before the first hygiene
         // pass, and so the first snapshot already shows real sessions.
+        crate::agents::activity_cache::restore(&mut engine.registry, now);
         engine.poll_processes(now);
+        // IPC can be called before the background loop's first 250 ms tick.
+        // Publish discovery now instead of exposing Snapshot::default().
+        let blocker = engine.guards(false).blocker();
+        let working = engine.working_agents();
+        engine.last = engine.build_snapshot(
+            now,
+            now_unix(),
+            engine.settings.watching && working > 0 && blocker.is_none(),
+            blocker,
+            working,
+        );
         engine
     }
 
@@ -489,6 +502,12 @@ impl Engine {
         let (detections, alive) = self.detector.poll(&agents, now);
         self.alive = alive;
         self.registry.on_process(&detections, now);
+        self.harness.poll(
+            &mut self.registry,
+            &self.alive,
+            self.detector.harness_state_roots(),
+            now,
+        );
         self.process_at = Some(now);
     }
 
@@ -590,11 +609,7 @@ impl Engine {
             let watch = self.watch_test();
             any_working_or_in_grace(&self.registry, watch, grace, &self.alive, now)
         };
-        // Release floor: once an agent-driven hold is up, the agent signal
-        // must stay dark for RELEASE_FLOOR before the hold drops. Hook
-        // drops, row-removal races and one-sample detector glitches cannot
-        // flip an active hold on their own anymore; a system that never held
-        // releases instantly, and a lapsed manual session drops at once.
+        // No extra delay after an authoritative idle/end transition.
         let agent_signal = if agents_working {
             self.agent_dark_since = None;
             true
@@ -1140,6 +1155,16 @@ mod tests {
     }
 
     #[test]
+    fn first_snapshot_already_contains_discovery_and_real_settings() {
+        let e = Engine::new();
+        let snapshot = e.current_snapshot();
+        assert_eq!(snapshot.agents.len(), AgentId::ALL.len());
+        assert_eq!(snapshot.sessions.len(), e.registry.len());
+        assert_eq!(snapshot.settings.watching, e.settings.watching);
+        assert!(snapshot.unix_ms > 0);
+    }
+
+    #[test]
     fn every_agent_lifecycle_engages_and_releases_the_power_request() {
         for agent in AgentId::ALL {
             let mut e = engine();
@@ -1163,8 +1188,7 @@ mod tests {
             assert!(e.tick(now + Duration::from_secs(1)).snapshot.engaged);
             e.registry
                 .on_hook(message(HookEvent::Idle), now + Duration::from_secs(2));
-            e.tick(now + Duration::from_secs(2));
-            let stopped = e.tick(now + Duration::from_secs(6));
+            let stopped = e.tick(now + Duration::from_secs(2));
             assert!(!stopped.snapshot.engaged, "{}", agent.id());
             assert!(!e.sleep_blocker().is_engaged());
             assert_eq!(stopped.toasts, vec![Notify::Finished]);
@@ -1273,9 +1297,8 @@ mod tests {
             },
             now + Duration::from_secs(120),
         );
-        // Tombstone grace (15s) + release floor (3s) delay the drop.
-        e.tick(now + Duration::from_secs(120));
-        let out = e.tick(now + Duration::from_secs(140));
+        // Explicit completion releases on the next engine tick.
+        let out = e.tick(now + Duration::from_secs(120));
         assert!(!out.snapshot.engaged);
         assert!(
             out.notifications.contains(&Notify::Finished),
@@ -1764,8 +1787,7 @@ mod tests {
         assert_eq!(out_engage1.notifications, vec![Notify::Engaged]);
         assert_eq!(out_engage1.toasts, vec![Notify::Engaged]);
 
-        // The turn ends at +2s. The tombstone keeps the grace window alive and
-        // the release floor adds 3s: still engaged, and nothing is announced.
+        // The turn ends at +2s. Release immediately, while keeping chimes debounced.
         e.registry.on_hook(
             HookMessage {
                 agent: AgentId::ClaudeCode,
@@ -1778,13 +1800,14 @@ mod tests {
             now + Duration::from_secs(2),
         );
         let out_hold = e.tick(now + Duration::from_secs(2));
-        assert!(out_hold.snapshot.engaged);
+        assert!(!out_hold.snapshot.engaged);
         assert!(out_hold.notifications.is_empty());
+        assert_eq!(out_hold.toasts, vec![Notify::Finished]);
 
         // Release once grace + floor lapse (+18s+): still inside the episode,
         // so the finish chime is suppressed — only the visible state drops.
         let out_floor = e.tick(now + Duration::from_secs(18));
-        assert_eq!(out_floor.toasts, vec![Notify::Finished]);
+        assert!(out_floor.toasts.is_empty());
         assert!(out_floor.notifications.is_empty());
         let out_release = e.tick(now + Duration::from_secs(23));
         assert!(!out_release.snapshot.engaged);
@@ -1856,7 +1879,7 @@ mod tests {
     fn poll_cadence_constants_match_fast_detection_targets() {
         assert_eq!(VISIBILITY_HOLD_DELAY, Duration::from_secs(1));
         assert_eq!(NOTIFY_EPISODE_DEBOUNCE, Duration::from_secs(60));
-        assert_eq!(RELEASE_FLOOR, Duration::from_secs(3));
+        assert_eq!(RELEASE_FLOOR, Duration::ZERO);
         assert_eq!(AGENT_INFO_POLL, Duration::from_secs(5));
         assert_eq!(AGENT_INFO_IDLE_POLL, Duration::from_secs(60));
     }

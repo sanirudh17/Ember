@@ -203,6 +203,9 @@ export function SettingsPage() {
       </section>
 
       <div className="safety-note">Battery Saver always takes priority. Closed-lid holds are limited to {snapshot.lid.cap_hours} hours.</div>
+      {snapshot.capabilities.modern_standby && (
+        <div className="safety-note">Windows limits battery-powered holds on this Modern Standby device. Plug in for extended runs.</div>
+      )}
 
       <section className="section settings-updates" data-reveal>
         <h2 className="h2">Updates</h2>

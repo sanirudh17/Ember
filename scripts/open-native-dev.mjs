@@ -18,8 +18,13 @@ catch {
  }
  if(!browser)throw new Error('The existing Ember runtime did not open its development connection.');
 }
-const page=(await browser.pages()).find(p=>p.url().includes('tauri.localhost'));
-if(!page)throw new Error('No native Ember window found.');
+let page;
+for(let attempt=0;attempt<40;attempt++) {
+ page=(await browser.pages()).find(p=>p.url().includes('tauri.localhost'));
+ if(page)break;
+ await new Promise(r=>setTimeout(r,250));
+}
+if(!page){browser.disconnect();throw new Error('No native Ember window found.');}
 const client=await page.createCDPSession();
 await client.send('Fetch.enable',{patterns:[{urlPattern:'http://tauri.localhost/',resourceType:'Document',requestStage:'Request'}]});
 client.on('Fetch.requestPaused',async event=>{

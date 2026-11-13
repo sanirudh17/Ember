@@ -28,8 +28,8 @@ const LOOP_INTERVAL: Duration = Duration::from_millis(250);
 
 /// Ember's default window size, in logical pixels. Wide enough to open in
 /// the dashboard form; the layout folds to one column below 1040px.
-pub const DEFAULT_WIDTH: u32 = 1100;
-pub const DEFAULT_HEIGHT: u32 = 700;
+pub const DEFAULT_WIDTH: u32 = 1060;
+pub const DEFAULT_HEIGHT: u32 = 680;
 
 /// Ignore maximization transition frames when remembering normal geometry.
 pub fn oversized_restore(width: u32, height: u32, monitor_width: u32, monitor_height: u32) -> bool {
@@ -42,46 +42,86 @@ pub fn oversized_restore(width: u32, height: u32, monitor_width: u32, monitor_he
 /// Restore size, position and maximised state, clamping onto a real monitor.
 pub fn place_window(window: &WebviewWindow, settings: &Settings) {
     let ws = &settings.window;
-    let is_max = window.is_maximized().unwrap_or(false);
-    let is_min = window.is_minimized().unwrap_or(false);
-    if !is_max && !is_min {
-        let stale_fullscreen = window.current_monitor().ok().flatten().is_some_and(|m| {
-            oversized_restore(ws.width, ws.height, m.size().width, m.size().height)
-        });
-        if ws.placed && ws.x.is_some() && ws.y.is_some() && !stale_fullscreen {
-            let monitors = monitor_rects(window);
-            let (x, y) = clamp_rect(
-                ws.x.unwrap_or(0),
-                ws.y.unwrap_or(0),
-                ws.width.max(760),
-                ws.height.max(520),
-                &monitors,
-            );
-            let _ = window.set_size(PhysicalSize::new(ws.width.max(760), ws.height.max(520)));
-            let _ = window.set_position(PhysicalPosition::new(x, y));
-        } else {
-            let _ = window.set_size(LogicalSize::new(
-                f64::from(DEFAULT_WIDTH),
-                f64::from(DEFAULT_HEIGHT),
-            ));
-            let _ = window.center();
-            // A utility sits slightly above center, clear of the taskbar.
-            if let Ok(position) = window.outer_position() {
-                let scale = window.scale_factor().unwrap_or(1.0);
-                let top = window
-                    .current_monitor()
-                    .ok()
-                    .flatten()
-                    .map(|m| m.position().y)
-                    .unwrap_or(0);
-                let y = (position.y - (40.0 * scale) as i32).max(top + (24.0 * scale) as i32);
-                let _ = window.set_position(PhysicalPosition::new(position.x, y));
-            }
-        }
+    if window.is_minimized().unwrap_or(false) || window.is_maximized().unwrap_or(false) {
+        return;
     }
-    if ws.maximized && !is_max {
+    let scale = window.scale_factor().unwrap_or(1.0);
+    if let Some(work) = work_area(window, ws.x.zip(ws.y)) {
+        let saved = if ws.placed && !oversized_restore(ws.width, ws.height, work.2, work.3) {
+            ws.x.zip(ws.y).map(|(x, y)| (x, y, ws.width, ws.height))
+        } else {
+            None
+        };
+        let (x, y, w, h) = fit_to_work_area(saved, work, scale);
+        let _ = window.set_size(PhysicalSize::new(w, h));
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+    } else {
+        let _ = window.set_size(LogicalSize::new(
+            f64::from(DEFAULT_WIDTH),
+            f64::from(DEFAULT_HEIGHT),
+        ));
+        let _ = window.center();
+    }
+    if ws.maximized {
         let _ = window.maximize();
     }
+}
+
+fn work_area(window: &WebviewWindow, saved: Option<(i32, i32)>) -> Option<(i32, i32, u32, u32)> {
+    use windows::Win32::Foundation::{HWND, POINT};
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint, MonitorFromWindow,
+    };
+    let handle = window.hwnd().ok()?;
+    let monitor = unsafe {
+        match saved {
+            Some((x, y)) => MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST),
+            None => MonitorFromWindow(HWND(handle.0 as _), MONITOR_DEFAULTTONEAREST),
+        }
+    };
+    let mut info = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
+        let r = info.rcWork;
+        Some((
+            r.left,
+            r.top,
+            (r.right - r.left) as u32,
+            (r.bottom - r.top) as u32,
+        ))
+    } else {
+        None
+    }
+}
+
+/// All values are physical pixels. Respect the taskbar on any monitor and DPI.
+pub fn fit_to_work_area(
+    saved: Option<(i32, i32, u32, u32)>,
+    work: (i32, i32, u32, u32),
+    scale: f64,
+) -> (i32, i32, u32, u32) {
+    let (left, top, ww, wh) = work;
+    let margin = ((24.0 * scale).round() as u32).min(ww.min(wh) / 4);
+    let max_w = ww.saturating_sub(2 * margin).max(1);
+    let max_h = wh.saturating_sub(2 * margin).max(1);
+    let (w, h) = saved.map(|(_, _, w, h)| (w, h)).unwrap_or((
+        (f64::from(DEFAULT_WIDTH) * scale).round() as u32,
+        (f64::from(DEFAULT_HEIGHT) * scale).round() as u32,
+    ));
+    let w = w.min(max_w).max(1);
+    let h = h.min(max_h).max(1);
+    let (x, y) = saved.map(|(x, y, _, _)| (x, y)).unwrap_or((
+        left + ((ww - w) / 2) as i32,
+        top + ((wh - h) / 2) as i32 - (16.0 * scale).round() as i32,
+    ));
+    (
+        x.clamp(left + margin as i32, left + (ww - w - margin) as i32),
+        y.clamp(top + margin as i32, top + (wh - h - margin) as i32),
+        w,
+        h,
+    )
 }
 
 /// Bring the window to the foreground robustly. `show`/`unminimize`/`set_focus`
@@ -383,6 +423,22 @@ mod tests {
     const TWO: (i32, i32, u32, u32) = (1920, 0, 2560, 1440);
 
     #[test]
+    fn default_and_saved_rects_stay_clear_of_the_taskbar() {
+        let fresh = fit_to_work_area(None, (0, 0, 1920, 1020), 1.25);
+        assert_eq!((fresh.2, fresh.3), (1325, 850));
+        assert!(fresh.1 + fresh.3 as i32 <= 990);
+        let saved = fit_to_work_area(Some((270, 65, 1380, 889)), (0, 0, 1920, 1020), 1.25);
+        assert_eq!(saved, (270, 65, 1380, 889));
+        let small = fit_to_work_area(Some((-2000, 500, 1540, 970)), (-1280, 0, 1280, 720), 1.0);
+        assert!(
+            small.0 >= -1256
+                && small.1 >= 24
+                && small.0 + small.2 as i32 <= -24
+                && small.1 + small.3 as i32 <= 696
+        );
+    }
+
+    #[test]
     fn maximized_transition_dimensions_are_not_a_normal_window_size() {
         assert!(oversized_restore(1920, 1057, 1920, 1080));
         assert!(!oversized_restore(1075, 775, 1920, 1080));
@@ -424,7 +480,7 @@ mod tests {
 
     #[test]
     fn defaults_are_the_documented_window_size() {
-        assert_eq!((DEFAULT_WIDTH, DEFAULT_HEIGHT), (1100, 700));
+        assert_eq!((DEFAULT_WIDTH, DEFAULT_HEIGHT), (1060, 680));
     }
 
     #[test]

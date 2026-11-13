@@ -3,6 +3,8 @@
 //! Each agent gets a generated monogram tile (rounded square, distinct muted
 //! hue, one or two letters) — never a third-party logo.
 
+pub mod activity_cache;
+pub mod harness;
 pub mod hookserver;
 pub mod installers;
 pub mod process;
@@ -188,13 +190,7 @@ impl AgentDef {
 
     /// The integration mode Ember uses by default for this agent.
     pub fn primary_mode(&self) -> IntegrationMode {
-        match self.id {
-            // Cline's only hook surface is a per-project `.clinerules/hooks/`
-            // directory; there is no documented global Windows mechanism, so
-            // Ember watches the process tree (approximate, always available).
-            AgentId::Cline => IntegrationMode::Process,
-            _ => IntegrationMode::Hooks,
-        }
+        IntegrationMode::Hooks
     }
 
     pub fn integration_note(&self) -> &'static str {
@@ -218,7 +214,7 @@ impl AgentDef {
                 "Hooks in ~/.gemini/config/hooks.json, keyed by hook name (SessionStart, PreInvocation, PostInvocation, PostToolUse, Stop)."
             }
             AgentId::Cline => {
-                "Process detection only: Cline exposes hooks per-project via .clinerules, not globally on Windows."
+                "Current Cline supports global Windows .ps1 hooks. Ember installs managed files in Documents/Cline/Hooks (plus the SDK directory when Documents is redirected). Enable Hooks in Cline and reload; older or disabled hosts retain approximate process detection. Existing user policy scripts are never replaced."
             }
         }
     }
@@ -293,8 +289,20 @@ pub fn parse_hook_payload(agent: AgentId, raw: &str) -> SessionContext {
             }
         }
         // OpenCode / Pi / Oh My Pi plugins are ours, so they send snake_case.
-        AgentId::OpenCode | AgentId::Pi | AgentId::OhMyPi | AgentId::Cline => SessionContext {
-            session_id: get_str(&["session_id", "sessionId", "id"]),
+        AgentId::Cline => SessionContext {
+            session_id: get_str(&["session_id", "sessionId", "taskId", "task_id", "id"]),
+            cwd: get_str(&["cwd", "directory", "worktree"]).or_else(|| {
+                value
+                    .get("workspaceRoots")?
+                    .as_array()?
+                    .first()?
+                    .as_str()
+                    .map(str::to_string)
+            }),
+            pid,
+        },
+        AgentId::OpenCode | AgentId::Pi | AgentId::OhMyPi => SessionContext {
+            session_id: get_str(&["session_id", "sessionId", "taskId", "task_id", "id"]),
             cwd: get_str(&["cwd", "directory", "worktree"]),
             pid,
         },

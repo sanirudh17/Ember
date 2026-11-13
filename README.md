@@ -19,11 +19,11 @@ Ember notices when Claude Code, Codex, OpenCode, Pi, Oh My Pi, Antigravity or Cl
 
 ## Detection and window behavior
 
-Ember also recognizes Antigravity's `agy_acp_server.exe` when launched by GUI clients. Shared ACP transport CPU alone does not earn a hold; session hooks must report the actual work. Hooks are authoritative: opening a session does not engage a hold, and an explicit idle/end event does not inherit a long live-process grace. Codex interruption is handled as idle (repair existing hooks to install this binding).
+Ember also recognizes Antigravity's `agy_acp_server.exe` when launched by GUI clients. Shared ACP transport CPU alone does not earn a hold; session hooks or supported T3/GOAT local session projections report the actual work. Private Antigravity profiles and GOAT stable/nightly homes are supported. Hooks are authoritative: opening a session does not engage a hold, and an explicit idle/end event does not inherit a long live-process grace. Codex interruption is handled as idle (repair existing hooks to install this binding).
 
-Process-only detection remains an estimate. It uses sustained CPU activity, a startup settle period, and a short quiet window; it cannot guarantee immediate turn detection during network waits or distinguish every typing burst. Prefer hooks where supported. Toasts follow visible state changes; repeated sounds are throttled separately.
+Current Cline supports global Windows PowerShell hooks; enable Hooks in Cline after installing the integration. Its fallback for older or disabled hosts remains an estimate, using sustained CPU activity and a short quiet window; it cannot guarantee immediate turn detection during network waits or distinguish every typing burst. Prefer hooks where supported. Toasts follow visible state changes; repeated sounds are throttled separately.
 
-The default window is 1100 by 700 and remembers its geometry and maximized state. Startup waits for the themed frontend to paint. The supplied Ember artwork is used in the app, tray, taskbar, and installer; run `npm run icon` to regenerate sizes without replacing the source artwork.
+The default window is 1060 by 680 and remembers its geometry and maximized state. Startup waits for the themed frontend to paint. The supplied Ember artwork is used in the app, tray, taskbar, and installer; run `npm run icon` to regenerate sizes without replacing the source artwork.
 
 ## Overview
 
@@ -31,7 +31,7 @@ Ember is a keep-awake companion for Windows aimed at people who leave long agent
 
 The usual keep-awake tool is a toggle you forget: you turn it on and your laptop never sleeps again, or you forget it and a multi-hour agent run gets suspended halfway. Ember replaces the toggle with detection. Busy machines stay awake, quiet machines sleep like normal, and you never think about it.
 
-> **New here?** Install the single `Ember_1.1.0_x64-setup.exe` from [Releases](https://github.com/sanirudh17/Ember/releases/latest) and run it. Ember lives in the tray and updates itself from then on.
+> **New here?** Install the single `Ember_1.2.0_x64-setup.exe` from [Releases](https://github.com/sanirudh17/Ember/releases/latest) and run it. Ember lives in the tray and updates itself from then on.
 
 ---
 
@@ -83,7 +83,7 @@ The usual keep-awake tool is a toggle you forget: you turn it on and your laptop
 
 ## How It Works
 
-Everything between "agent got a prompt" and "PC stays awake" runs as one decision pipeline. A hook-managed session owns its process state. CPU fallback fills gaps for standalone CLI processes; shared servers require session events.
+Everything between "agent got a prompt" and "PC stays awake" runs as one decision pipeline. A hook-managed session owns its process state. Only unhooked Cline uses CPU-derived working estimates. The other six require lifecycle signals or supported harness metadata; exact open processes appear immediately.
 
 ```
   any agent moving?
@@ -104,7 +104,7 @@ Everything between "agent got a prompt" and "PC stays awake" runs as one decisio
         └─ lid override: closing the lid stops sleeping — capped, charger-gated, watchdog-restored
 ```
 
-**Why two signals.** The hook is exact — Ember knows the moment work starts and stops. But hooks live inside other people's tools, and event names drift between releases. Process detection never needs the agent's cooperation, so it is always available as the corroborating signal. Hook-managed sessions are authoritative; process-detected rows keep the machine awake through hook outages, installs that have not happened yet, and Cline's missing Windows hook surface.
+**Why two signals.** Hooks report lifecycle transitions when the host emits them. Process discovery confirms which applications are open, while persisted hook state and supported T3/GOAT session metadata provide restart recovery. CPU is used only for unhooked Cline's approximate working estimate; opening or typing in a hook-supported agent cannot earn a hold from CPU alone. Missing hooks must be installed or repaired rather than hidden behind an unreliable activity guess.
 
 **Ember is never allowed to break an agent.** Hook commands read their payload from stdin with a bounded budget, write one JSON line to a local named pipe, authenticate with a per-install token, and always exit 0 in roughly 300 ms. A missing pipe, a malformed payload or a timeout is silently ignored.
 
@@ -114,7 +114,7 @@ Everything between "agent got a prompt" and "PC stays awake" runs as one decisio
 
 ## Supported Agents
 
-Ember knows seven agents. Six report exact working/idle transitions through hooks Ember installs for them; all seven are also found from the process tree.
+Ember knows seven agents. Current supported hosts can all report lifecycle events through installed hooks; all seven are also found from the process tree. Hook enablement and host event coverage determine exactness.
 
 | Agent | Integration | Where it lives |
 | --- | --- | --- |
@@ -124,7 +124,7 @@ Ember knows seven agents. Six report exact working/idle transitions through hook
 | **Pi** | in-process extension | `~/.pi/agent/extensions/ember-hooks.ts` |
 | **Oh My Pi** | in-process extension | `~/.omp/agent/extensions/ember-hooks.ts` |
 | **Antigravity CLI** | named shell hooks | `~/.gemini/config/hooks.json` |
-| **Cline** | process detection only | no global Windows hook surface upstream |
+| **Cline** | global Windows PowerShell hooks | Documents/Cline/Hooks; enable Hooks in the host; approximate fallback for older or disabled hosts |
 
 Install, repair or remove any agent's hook from the **Agents** tab. Every write is previewed as a diff first, backed up to `<file>.ember-backup-<timestamp>`, merged rather than replaced, idempotent, and removable exactly — Ember only ever removes what it added. The full per-agent matrix lives in [`docs/AGENT_INTEGRATIONS.md`](docs/AGENT_INTEGRATIONS.md).
 
@@ -152,7 +152,7 @@ Download the latest installer from the [**Releases**](https://github.com/sanirud
 
 | Installer | Notes |
 | --- | --- |
-| **`Ember_1.1.0_x64-setup.exe`** | NSIS installer — single executable, no extra dependencies. Recommended. |
+| **`Ember_1.2.0_x64-setup.exe`** | NSIS installer — single executable, no extra dependencies. Recommended. |
 
 The installer is currently unsigned, so Windows SmartScreen may show *"Windows protected your PC"* → **More info → Run anyway**.
 
@@ -194,7 +194,7 @@ npm run tauri dev
 
 ```bash
 npm run tauri build
-# → src-tauri/target/release/bundle/nsis/Ember_1.1.0_x64-setup.exe
+# → src-tauri/target/release/bundle/nsis/Ember_1.2.0_x64-setup.exe
 ```
 
 **Run the test suite**
@@ -304,8 +304,8 @@ Released under the [MIT License](LICENSE). © 2026 Sanirudh ([sanirudh17](https:
 
 Built with [Tauri](https://v2.tauri.app/). Agent integrations follow each tool's own documented hook or extension surface — the full per-agent matrix, including the pitfalls each one had on Windows, lives in [`docs/AGENT_INTEGRATIONS.md`](docs/AGENT_INTEGRATIONS.md).
 
-### Detection coverage in v1.1.0
+### Detection coverage in v1.2.0
 
 Reasoning and tool execution belong to the enclosing turn; finishing one tool is not finishing the turn. Explicit user-question/UI waits suspend a hold when the host exposes those events. Cancellation and session closure cannot be undone by late tool callbacks. See [the agent audit](docs/AGENT_DETECTION_AUDIT.md) for the tested sequences and host-specific limits.
 
-After updating, use **Agents > Repair hooks** for existing integrations and restart/reload their host processes. Codex may request normal trust review for changed hooks. Process-only Cline and hosts that do not load hooks remain estimates; CPU cannot reliably distinguish network-only reasoning, approvals, and Escape.
+After updating, use **Agents > Repair hooks** for existing integrations and restart/reload their host processes. Codex may request normal trust review for changed hooks. Current Cline can use the new global Windows hooks; older or disabled hosts retain approximate fallback. Hosts that do not load lifecycle hooks cannot provide exact turn boundaries. CPU cannot reliably distinguish network-only reasoning, approvals, and Escape. See [the v1.2.0 verification report](docs/RELIABILITY_FOLLOWUP.md) for coverage and native power API proof. On battery-powered Modern Standby devices, Windows may expire power requests; plug in for extended runs. Ember does not block explicit shutdown or Windows safety actions.

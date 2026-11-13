@@ -39,7 +39,8 @@ pub enum SessionState {
     Idle,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
 pub enum HookEvent {
     Start,
     Working,
@@ -77,7 +78,7 @@ impl HookEvent {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct HookMessage {
     pub agent: AgentId,
     pub event: HookEvent,

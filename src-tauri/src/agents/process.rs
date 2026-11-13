@@ -1,15 +1,9 @@
 //! Process-tree detection — the fallback for agents with no hook mechanism.
 //!
-//! Polled every 2s. A matched process tree must survive the settle window
-//! (`MIN_REPORT_AGE`) before it is reported at all, so short-lived helpers can
-//! never flash a row into the session list. After settling it requires
-//! sustained activity before it counts as "working": every sample above
-//! [`CPU_FLOOR`] adds up to [`CPU_SAMPLE_CAP`] energy, the tree engages once
-//! the accumulator holds [`CPU_ENERGY`], and every quiet sample removes a full
-//! cap so isolated spikes decay instead of stacking. Once quiet, it remains in
-//! working state for a 15s anti-flap idle hold. A row lives exactly as long as
-//! its process: idle agents stay listed, and the row disappears one poll after
-//! the process exits.
+//! Polled every second. Exact matched processes appear on the first sample.
+//! Process existence is distinct from an active turn: six hook-capable agents
+//! require hooks or supported harness metadata to hold awake. Only Cline uses
+//! bounded CPU hysteresis as an explicitly approximate fallback.
 //!
 //! Folder labels come from the working directories of the whole tree, read
 //! straight out of each process's PEB (sysinfo cannot read cwds on Windows):
@@ -21,8 +15,8 @@
 //! a window average: averaging smears a single 2s burst across three polls,
 //! letting one spike satisfy the consecutive gate by itself.
 //!
-//! Process detection ignores everything for the first 10 seconds after launch and
-//! requires at least two valid CPU refreshes before state is trusted.
+//! CPU inference requires at least two valid refreshes; open-session discovery
+//! does not wait for CPU samples.
 //! Matching is strictly limited to exact executables and script entrypoints,
 //! excluding shells, multiplexers, editors, WebView2, and Ember itself.
 //!
@@ -54,12 +48,10 @@ pub const CPU_FLOOR: f32 = 3.0;
 pub const CPU_SAMPLE_CAP: f32 = 4.0;
 pub const CPU_ENERGY: f32 = 8.0;
 pub const IDLE_HOLD: Duration = Duration::from_secs(4);
-pub const STARTUP_IGNORE_WINDOW: Duration = Duration::from_secs(10);
+pub const STARTUP_IGNORE_WINDOW: Duration = Duration::ZERO;
 
-/// Every matched process stays invisible for this long after it is first seen.
-/// Transient helpers (one-shot launchers, updaters, spawn bursts) burn out
-/// inside this window, so they can never flash a row into the session list.
-pub const MIN_REPORT_AGE: Duration = Duration::from_secs(10);
+/// Session discovery has no artificial settle delay.
+pub const MIN_REPORT_AGE: Duration = Duration::ZERO;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcessDetection {
@@ -296,7 +288,7 @@ impl ProcessDetector {
             }
         }
 
-        // Is CPU trustworthy yet? Ignore the first 10 seconds and need >= 2 refreshes.
+        // CPU estimation needs >= 2 refreshes; session visibility does not.
         let trustworthy =
             now.duration_since(self.created_at) >= STARTUP_IGNORE_WINDOW && self.refreshes >= 2;
 
@@ -370,11 +362,57 @@ impl ProcessDetector {
                 agent: t.agent,
                 pid: *pid,
                 folder: t.folder.clone(),
-                working: if trustworthy { t.working } else { false },
+                working: trustworthy && allows_cpu_inference(t.agent) && t.working,
             })
             .collect();
 
         (detections, alive)
+    }
+
+    /// Only inspect known harness/ACP processes, never arbitrary prompt arguments.
+    pub fn harness_state_roots(&self) -> Vec<PathBuf> {
+        let mut roots = Vec::new();
+        for process in self.sys.processes().values() {
+            let name = process.name().to_string_lossy().to_lowercase();
+            if protocol_only_executable(&name)
+                && let Some(home) = process_environment_value(process.pid().as_u32(), "GEMINI_HOME")
+            {
+                let profile = PathBuf::from(home);
+                // <state>/providers/antigravity/<instance-hash>
+                if let Some(providers) = profile
+                    .ancestors()
+                    .find(|p| p.file_name().is_some_and(|n| n == "providers"))
+                    && let Some(state) = providers.parent()
+                {
+                    roots.push(state.to_path_buf());
+                }
+            }
+            if matches!(
+                name.as_str(),
+                "goat.exe"
+                    | "goat (nightly).exe"
+                    | "goat (dev).exe"
+                    | "t3 code.exe"
+                    | "t3 code (nightly).exe"
+                    | "t3.exe"
+                    | "t3code.exe"
+                    | "goat-server.exe"
+                    | "t3code-server.exe"
+            ) {
+                for key in ["GOAT_HOME", "T3CODE_HOME"] {
+                    if let Some(home) = process_environment_value(process.pid().as_u32(), key) {
+                        roots.push(PathBuf::from(home).join("userdata"));
+                    }
+                }
+                let args: Vec<_> = process.cmd().iter().map(|v| v.to_string_lossy()).collect();
+                for pair in args.windows(2) {
+                    if pair[0] == "--base-dir" {
+                        roots.push(PathBuf::from(pair[1].as_ref()).join("userdata"));
+                    }
+                }
+            }
+        }
+        roots
     }
 
     /// The project folder for one matched tree: the most plausible working
@@ -477,6 +515,35 @@ pub fn is_background_daemon(exe_name: &str, cmd_tokens: &[String]) -> bool {
         return true;
     }
     false
+}
+
+/// Hook-capable agents need turn evidence. Typing, indexing and startup CPU
+/// cannot distinguish work from an open idle terminal. Cline has no hook adapter.
+pub fn allows_cpu_inference(agent: AgentId) -> bool {
+    agent == AgentId::Cline
+}
+
+/// Stable identity for recovering a hook session without trusting a reused PID.
+pub fn process_start_time(pid: u32) -> Option<u64> {
+    use windows::Win32::Foundation::{CloseHandle, FILETIME};
+    use windows::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()? };
+    let mut created = FILETIME::default();
+    let mut exited = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    let result =
+        unsafe { GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) };
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    result.ok()?;
+    Some(
+        ((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime)) / 10_000_000
+            - 11_644_473_600,
+    )
 }
 
 /// Shared ACP transports do not expose turn boundaries through CPU usage.
@@ -586,6 +653,107 @@ pub fn match_agent_tokens(
     None
 }
 
+/// Read one allowlisted environment value from a native process. Never return
+/// its environment block (which may contain credentials) to logs or callers.
+fn process_environment_value(pid: u32, key: &str) -> Option<String> {
+    use windows::Wdk::System::Threading::{
+        NtQueryInformationProcess, ProcessBasicInformation, ProcessWow64Information,
+    };
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+    use windows::Win32::System::Threading::{
+        OpenProcess, PROCESS_BASIC_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
+    };
+    if !["GEMINI_HOME", "GOAT_HOME", "T3CODE_HOME"].contains(&key) {
+        return None;
+    }
+    let handle = unsafe {
+        OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+            false,
+            pid,
+        )
+        .ok()?
+    };
+    let result = (|| {
+        let mut wow64 = 0usize;
+        if unsafe {
+            NtQueryInformationProcess(
+                handle,
+                ProcessWow64Information,
+                &mut wow64 as *mut _ as _,
+                std::mem::size_of_val(&wow64) as u32,
+                std::ptr::null_mut(),
+            )
+        }
+        .0 >= 0
+            && wow64 != 0
+        {
+            return None;
+        }
+        let mut info = PROCESS_BASIC_INFORMATION::default();
+        if unsafe {
+            NtQueryInformationProcess(
+                handle,
+                ProcessBasicInformation,
+                &mut info as *mut _ as _,
+                std::mem::size_of_val(&info) as u32,
+                std::ptr::null_mut(),
+            )
+        }
+        .0 < 0
+        {
+            return None;
+        }
+        let read_ptr = |address: usize| -> Option<usize> {
+            let mut value = 0usize;
+            unsafe {
+                ReadProcessMemory(handle, address as _, &mut value as *mut _ as _, 8, None).ok()?
+            };
+            Some(value)
+        };
+        let params = read_ptr(info.PebBaseAddress as usize + 0x20)?;
+        let env = read_ptr(params + 0x80)?;
+        if env < 0x10000 {
+            return None;
+        }
+        let mut buffer = Vec::new();
+        for offset in (0..128 * 1024).step_by(512) {
+            let mut block = [0u16; 256];
+            if unsafe {
+                ReadProcessMemory(
+                    handle,
+                    (env + offset) as _,
+                    block.as_mut_ptr() as _,
+                    512,
+                    None,
+                )
+            }
+            .is_err()
+            {
+                break;
+            }
+            buffer.extend(block);
+            if buffer.windows(2).any(|w| w == [0, 0]) {
+                break;
+            }
+        }
+        for part in buffer.split(|c| *c == 0) {
+            let text = String::from_utf16_lossy(part);
+            if let Some((name, value)) = text.split_once('=')
+                && name.eq_ignore_ascii_case(key)
+            {
+                return Some(value.to_string());
+            }
+        }
+        None
+    })();
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    result
+}
+
 /// Reads a live process's working directory out of its PEB.
 ///
 /// sysinfo returns `None` for cwds on Windows, which used to push every folder
@@ -615,7 +783,7 @@ pub fn process_cwd(pid: sysinfo::Pid) -> Option<PathBuf> {
     let handle = unsafe {
         OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
-            false.into(),
+            false,
             pid.as_u32(),
         )
     }
@@ -682,7 +850,7 @@ pub fn process_cwd(pid: sysinfo::Pid) -> Option<PathBuf> {
             &mut len as *mut u16 as *mut c_void,
             size_of::<u16>(),
         )?;
-        if len == 0 || len % 2 != 0 || len > 0x7FFE {
+        if len == 0 || !len.is_multiple_of(2) || len > 0x7FFE {
             return None;
         }
         let buf = read_ptr(params + OFF_CWD_BUF)?;
@@ -747,10 +915,11 @@ pub fn best_project_folder(
             {
                 return false;
             }
-            if let Some(exe) = &exe {
-                if !exe.is_empty() && (is_same_or_child(key, exe) || is_same_or_child(exe, key)) {
-                    return false;
-                }
+            if let Some(exe) = &exe
+                && !exe.is_empty()
+                && (is_same_or_child(key, exe) || is_same_or_child(exe, key))
+            {
+                return false;
             }
             true
         })
@@ -793,7 +962,7 @@ fn install_prefixes() -> Vec<PathBuf> {
         "TEMP",
     ];
     VARS.iter()
-        .filter_map(|name| std::env::var_os(name))
+        .filter_map(std::env::var_os)
         .map(PathBuf::from)
         .collect()
 }
@@ -1226,21 +1395,22 @@ mod tests {
     }
 
     #[test]
-    fn transient_helper_inside_settle_window_never_reports() {
-        // The reported false positive: a short-lived helper burning hot enough
-        // for the old gate. Inside the settle window it must never surface and
-        // never turn working, however hot it runs.
+    fn hook_agents_are_visible_immediately_but_cpu_cannot_start_a_turn() {
+        // Typing, indexing and GUI startup may burn CPU without a submitted turn.
         let t0 = Instant::now();
         let mut t = test_track(t0);
         for i in 1..=5u64 {
             let now = t0 + Duration::from_secs(2 * i); // 2s..=10s of hot samples
             step_track(&mut t, 40.0, now);
-            assert!(!t.working, "settling helper must never turn working");
-            if now.duration_since(t0) < MIN_REPORT_AGE {
-                assert!(
-                    !should_report(t.first_seen, now),
-                    "settling helper must stay invisible"
-                );
+            assert!(should_report(t.first_seen, now));
+            for agent in AgentId::ALL {
+                if agent != AgentId::Cline {
+                    assert!(
+                        !(allows_cpu_inference(agent) && t.working),
+                        "{} cannot hold from CPU",
+                        agent.id()
+                    );
+                }
             }
         }
     }

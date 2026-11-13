@@ -231,10 +231,53 @@ pub fn decode(line: &str, token: &str) -> Result<Option<HookMessage>, String> {
 }
 
 /// Questions suspend a run; ordinary tools keep their enclosing run active.
-fn classify_tool_event(event: HookEvent, payload: &str) -> HookEvent {
+pub(crate) fn classify_tool_event(event: HookEvent, payload: &str) -> HookEvent {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
         return event;
     };
+    if matches!(event, HookEvent::Working | HookEvent::Heartbeat)
+        && value.get("notification").is_some_and(|n| {
+            [
+                "waitingForUserInput",
+                "waiting_for_user_input",
+                "requiresUserAction",
+                "requires_user_action",
+            ]
+            .iter()
+            .any(|key| n.get(key).and_then(|v| v.as_bool()) == Some(true))
+        })
+    {
+        return HookEvent::Waiting;
+    }
+    let tool_name = value
+        .get("tool_name")
+        .or_else(|| value.get("toolName"))
+        .or_else(|| value.pointer("/preToolUse/toolName"))
+        .or_else(|| value.pointer("/postToolUse/toolName"))
+        .or_else(|| value.pointer("/tool_call/name"))
+        .or_else(|| value.pointer("/tool_result/name"))
+        .and_then(|v| v.as_str());
+    let question = matches!(
+        tool_name,
+        Some(
+            "AskUserQuestion"
+                | "ExitPlanMode"
+                | "request_user_input"
+                | "ask_user"
+                | "ask_followup_question"
+                | "plan_mode_respond"
+                | "attempt_completion"
+        )
+    );
+    if event == HookEvent::Resume
+        && (value.get("postToolUse").is_some() || value.get("tool_result").is_some())
+    {
+        return if question {
+            HookEvent::Resume
+        } else {
+            HookEvent::Heartbeat
+        };
+    }
     if event == HookEvent::Start && value.get("source").and_then(|v| v.as_str()) == Some("compact")
     {
         return HookEvent::Heartbeat;
@@ -242,25 +285,76 @@ fn classify_tool_event(event: HookEvent, payload: &str) -> HookEvent {
     if event != HookEvent::Working {
         return event;
     }
-    match value
-        .get("tool_name")
-        .or_else(|| value.get("toolName"))
-        .and_then(|v| v.as_str())
-    {
-        Some(
-            "AskUserQuestion"
-            | "ExitPlanMode"
-            | "request_user_input"
-            | "ask_user"
-            | "ask_followup_question",
-        ) => HookEvent::Waiting,
-        _ => event,
-    }
+    if question { HookEvent::Waiting } else { event }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cline_native_and_sdk_payloads_preserve_task_wait_and_terminal_boundaries() {
+        let decode_event = |event, payload| {
+            decode(&frame("token", "cline", event, payload), "token")
+                .unwrap()
+                .unwrap()
+        };
+        let work = decode_event(
+            "working",
+            r#"{"taskId":"task","workspaceRoots":["C:/project"],"preToolUse":{"toolName":"bash"}}"#,
+        );
+        assert_eq!(work.session_id.as_deref(), Some("task"));
+        assert_eq!(work.cwd.as_deref(), Some("C:/project"));
+        assert_eq!(work.event, HookEvent::Working);
+        assert_eq!(
+            decode_event(
+                "working",
+                r#"{"taskId":"task","preToolUse":{"toolName":"ask_followup_question"}}"#
+            )
+            .event,
+            HookEvent::Waiting
+        );
+        assert_eq!(
+            decode_event(
+                "working",
+                r#"{"taskId":"task","tool_call":{"name":"ask_followup_question"}}"#
+            )
+            .event,
+            HookEvent::Waiting
+        );
+        assert_eq!(
+            decode_event(
+                "resume",
+                r#"{"taskId":"task","postToolUse":{"toolName":"bash"}}"#
+            )
+            .event,
+            HookEvent::Heartbeat
+        );
+        assert_eq!(
+            decode_event(
+                "resume",
+                r#"{"taskId":"task","tool_result":{"name":"ask_followup_question"}}"#
+            )
+            .event,
+            HookEvent::Resume
+        );
+        assert_eq!(
+            decode_event(
+                "heartbeat",
+                r#"{"taskId":"task","notification":{"waitingForUserInput":true}}"#
+            )
+            .event,
+            HookEvent::Waiting
+        );
+        assert_eq!(
+            decode_event(
+                "idle",
+                r#"{"taskId":"task","notification":{"waitingForUserInput":true}}"#
+            )
+            .event,
+            HookEvent::Idle
+        );
+    }
 
     fn frame(token: &str, agent: &str, event: &str, payload: &str) -> String {
         serde_json::to_string(&HookWire {

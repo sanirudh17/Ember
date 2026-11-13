@@ -2,6 +2,7 @@
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
+const deadline=setTimeout(()=>{console.error('Generated integration test timed out');process.exit(1);},10000);
 (async () => {
   const {agent, source} = JSON.parse(fs.readFileSync(0, 'utf8'));
   const calls = [], handlers = new Map(), timers = [];
@@ -38,6 +39,12 @@ const assert = require('node:assert/strict');
     await emit('question.replied',{requestID:'q1'});assert.equal(last(),'working');
     await plugin['tool.execute.after']({sessionID:'one',tool:'bash'});assert.equal(last(),'working','ordinary tool completion does not idle');
     await emit('session.error',{error:{name:'AnyTerminalError'}});assert.equal(last(),'idle');
+    await emit('session.execution.started');assert.equal(last(),'working');
+    const v1Owned=calls.length;
+    await emit('session.idle');await emit('session.status',{status:{type:'idle'}});
+    await emit('session.error');assert.equal(calls.length,v1Owned,'v2 execution also owns the v1 adapter until terminal');
+    clock+=60*60*1000;timers.forEach(fn=>fn());assert.equal(last(),'working','one hour of reasoning does not time out');
+    await emit('session.execution.interrupted');assert.equal(last(),'idle');
     // V2 idle-looking step events must not terminate the execution lifecycle.
     let complete;
     const completed=new Promise(resolve=>complete=resolve);
@@ -69,6 +76,53 @@ const assert = require('node:assert/strict');
     const cleanup=await sandbox.setup({event:{subscribe:()=>events()},location:{directory:'C:/project'}});
     await completed;await cleanup();
 
+    // A transport failure is not completion. Reconnect and reconcile a missed
+    // terminal event through metadata rather than timing out silent reasoning.
+    let subscriptions=0, reconnected, recoveredIdle=100;
+    const recovery=new Promise(resolve=>reconnected=resolve);
+    const resilient=await sandbox.setup({
+      session:{get:async()=>({time:{busy:{epochMillis:200},idle:{epochMillis:recoveredIdle}}})},
+      event:{subscribe:({signal})=>(async function*(){
+        subscriptions++;
+        if(subscriptions===1){
+          yield {type:'session.execution.started',properties:{sessionID:'reconnect'}};
+          assert.equal(last(),'working');
+          throw new Error('transport closed');
+        }
+        if(subscriptions===2){
+          assert.equal(last(),'working','disconnect does not terminate ongoing silent work');
+          recoveredIdle=300;return;
+        }
+        assert.equal(last(),'idle','metadata recovers the terminal event lost during disconnect');
+        reconnected();
+        await new Promise(resolve=>{signal.addEventListener('abort',resolve,{once:true});if(signal.aborted)resolve();});
+      })()},
+    });
+    await recovery;assert.ok(subscriptions>=2);await resilient();
+
+    // A slow metadata response from the previous turn cannot idle a newer turn,
+    // even when both transitions happen within the same clock millisecond.
+    let answerOld, finishRace, reads=0;
+    const raceDone=new Promise(resolve=>finishRace=resolve);
+    const racing=await sandbox.setup({
+      session:{get:()=>++reads===1?new Promise(resolve=>answerOld=resolve):Promise.resolve({time:{busy:500,idle:200}})},
+      event:{subscribe:({signal})=>(async function*(){
+        const event=type=>({type,properties:{sessionID:'race'}});
+        yield event('session.execution.started');
+        timers.forEach(fn=>fn());
+        assert.equal(typeof answerOld,'function');
+        yield event('session.execution.interrupted');
+        yield event('session.execution.started');
+        const newer=calls.length;
+        answerOld({time:{busy:100,idle:200}});
+        await Promise.resolve();await Promise.resolve();
+        assert.equal(calls.length,newer,'old metadata cannot override the newer execution');
+        assert.equal(last(),'working');finishRace();
+        await new Promise(resolve=>{signal.addEventListener('abort',resolve,{once:true});if(signal.aborted)resolve();});
+      })()},
+    });
+    await raceDone;await racing();
+
   }else{
     sandbox.factory({on:(name,handler)=>handlers.set(name,handler)});
     const ctx={sessionManager:{getSessionId:()=> 'one'}};
@@ -80,6 +134,7 @@ const assert = require('node:assert/strict');
       timers.forEach(fn=>fn());assert.equal(last(),'working','long thinking refreshes state');
       emit('ui_prompt_start');assert.equal(last(),'waiting');
       const waitingCount=calls.length;timers.forEach(fn=>fn());assert.equal(calls.length,waitingCount);
+      emit('tool_execution_start',{toolName:'bash'});assert.equal(calls.length,waitingCount,'a tool callback cannot override pending user input');
       emit('ui_prompt_end');assert.equal(last(),'resume');
       emit('ui_prompt_start');emit('agent_settled',{aborted:true});assert.equal(last(),'idle');
       const stopped=calls.length;emit('ui_prompt_end');assert.equal(calls.length,stopped,'cancelled prompt cannot resume');
@@ -87,6 +142,9 @@ const assert = require('node:assert/strict');
       const count=calls.length;emit('agent_end',{willContinue:true});assert.equal(calls.length,count);
       timers.forEach(fn=>fn());assert.equal(last(),'working');
       emit('tool_call',{toolName:'ask'});assert.equal(last(),'waiting');
+      const questionCount=calls.length;
+      emit('tool_execution_start',{toolName:'ask'});emit('tool_call',{toolName:'bash'});
+      assert.equal(calls.length,questionCount,'question tool startup and parallel callbacks cannot clear its wait');
       emit('tool_execution_end',{toolName:'bash'});assert.equal(last(),'waiting');
       emit('tool_execution_end',{toolName:'ask'});assert.equal(last(),'resume');
       emit('agent_end',{willContinue:false});assert.equal(last(),'idle');
@@ -94,4 +152,4 @@ const assert = require('node:assert/strict');
     const count=calls.length;timers.forEach(fn=>fn());assert.equal(calls.length,count,'no idle resurrection');
     emit('session_shutdown');assert.equal(last(),'end');
   }
-})().catch(e=>{console.error(e);process.exitCode=1;});
+})().catch(e=>{console.error(e);process.exitCode=1;}).finally(()=>clearTimeout(deadline));

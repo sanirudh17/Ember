@@ -16,7 +16,7 @@
 //!     quoted path gets its quotes eaten by cmd, silently never running
 //!   * Antigravity — JSON `hooks.json`, keyed by hook name ("ember")
 //!   * OpenCode / Pi / Oh My Pi — a single plugin/extension file we own
-//!   * Cline — no global Windows hook surface; process detection instead
+//!   * Cline: managed Windows PowerShell hook bundle; existing policies are preserved
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -28,6 +28,7 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, value};
 use super::registry::HookEvent;
 use super::{AgentId, IntegrationMode, current_exe};
 use crate::paths;
+mod cline;
 
 // ---------------------------------------------------------------------------
 // Hook bindings (which agent event maps to which Ember event)
@@ -133,7 +134,7 @@ pub fn bindings(agent: AgentId) -> &'static [Binding] {
         AgentId::OpenCode => &OPENCODE_BINDINGS,
         AgentId::Pi => &PI_BINDINGS,
         AgentId::OhMyPi => &OH_MY_PI_BINDINGS,
-        AgentId::Cline => &[],
+        AgentId::Cline => cline::BINDINGS,
     }
 }
 
@@ -333,12 +334,12 @@ pub fn target_path(agent: AgentId) -> Result<PathBuf, String> {
             .join("extensions")
             .join("ember-hooks.ts"),
         AgentId::Antigravity => h.join(".gemini").join("config").join("hooks.json"),
-        AgentId::Cline => return Err("Cline has no global Windows hook surface".into()),
+        AgentId::Cline => cline::directory()?.join("UserPromptSubmit.ps1"),
     })
 }
 
-pub fn supported(agent: AgentId) -> bool {
-    !matches!(agent, AgentId::Cline)
+pub fn supported(_agent: AgentId) -> bool {
+    true
 }
 
 fn read_or_empty(path: &Path) -> Result<(String, bool), String> {
@@ -350,6 +351,9 @@ fn read_or_empty(path: &Path) -> Result<(String, bool), String> {
 }
 
 pub fn render(agent: AgentId, op: Op) -> Result<Rendered, String> {
+    if agent == AgentId::Cline {
+        return cline::render(op, &current_exe());
+    }
     let exe = current_exe();
     let path = target_path(agent)?;
     let (before, creates) = read_or_empty(&path)?;
@@ -360,7 +364,7 @@ pub fn render(agent: AgentId, op: Op) -> Result<Rendered, String> {
         AgentId::OpenCode | AgentId::Pi | AgentId::OhMyPi => {
             render_plugin_file(&before, agent, &exe, op)?
         }
-        AgentId::Cline => return Err("Cline has no installable hook surface".into()),
+        AgentId::Cline => unreachable!("Cline uses its bundle renderer"),
     };
     Ok(Rendered {
         path,
@@ -377,7 +381,7 @@ fn format_of(agent: AgentId) -> &'static str {
         AgentId::ClaudeCode | AgentId::Antigravity => "json",
         AgentId::Codex => "toml",
         AgentId::OpenCode | AgentId::Pi | AgentId::OhMyPi => "typescript",
-        AgentId::Cline => "none",
+        AgentId::Cline => "powershell bundle",
     }
 }
 
@@ -750,7 +754,7 @@ function fire(event, sessionId, cwd) {{
 const store = (globalThis.__emberOpenCodeHooks ||= {{ sessions: new Map(), heartbeat: null, exitHooked: false }});
 function stateFor(id, cwd) {{
   let st=store.sessions.get(id);
-  if (!st) {{ st={{working:false, active:false, pending:new Set(), cwd:cwd||"", lastFireAt:0}}; store.sessions.set(id,st); }}
+  if (!st) {{ st={{working:false, active:false, executionOwned:false, pending:new Set(), cwd:cwd||"", lastFireAt:0}}; store.sessions.set(id,st); }}
   st.pending ||= new Set();
   if(cwd)st.cwd=cwd;
   return st;
@@ -760,6 +764,7 @@ function markWorking(id, cwd, begin=false) {{
   const st=stateFor(id,cwd);
   if(begin)st.active=true;
   if(!st.active || st.pending.size)return;
+  st.revision=(st.revision||0)+1;
   const now=Date.now();
   if(st.working && now-st.lastFireAt<20000)return;
   st.working=true; st.lastFireAt=now; fire("working",id,st.cwd);
@@ -767,7 +772,8 @@ function markWorking(id, cwd, begin=false) {{
 function markIdle(id,cwd,terminal=true) {{
   if(!id)return;
   const st=stateFor(id,cwd), wasWorking=st.working;
-  if(terminal){{st.active=false;st.pending.clear();}}
+  st.revision=(st.revision||0)+1;
+  if(terminal){{st.active=false;st.executionOwned=false;st.pending.clear();}}
   st.working=false;
   if(wasWorking || terminal){{st.lastFireAt=Date.now();fire("idle",id,st.cwd);}}
 }}
@@ -814,14 +820,14 @@ async function handle(ctx,input,v1=false){{
     case "session.deleted": markEnd(id,cwd);break;
     case "session.status":
       if(["busy","retry"].includes(data.status?.type))markWorking(id,cwd,true);
-      else if(v1&&data.status?.type==="idle")markIdle(id,cwd);
+      else if(v1&&data.status?.type==="idle"&&!store.sessions.get(id)?.executionOwned)markIdle(id,cwd);
       break;
-    case "session.idle": if(v1)markIdle(id,cwd);break;
-    case "session.execution.started": markWorking(id,cwd,true);break;
+    case "session.idle": if(v1&&!store.sessions.get(id)?.executionOwned)markIdle(id,cwd);break;
+    case "session.execution.started": if(id)stateFor(id,cwd).executionOwned=true;markWorking(id,cwd,true);break;
     case "session.execution.succeeded":
     case "session.execution.failed":
     case "session.execution.interrupted": markIdle(id,cwd);break;
-    case "session.error": if(v1)markIdle(id,cwd);break;
+    case "session.error": if(v1&&!store.sessions.get(id)?.executionOwned)markIdle(id,cwd);break;
     // Progress can sustain/resume an active run, but cannot resurrect a completed one.
     case "session.reasoning.started":
     case "session.reasoning.delta":
@@ -857,18 +863,51 @@ async function setup(ctx){{
   if(typeof ctx?.event?.subscribe!=="function")return async()=>{{}};
   startHeartbeat();
   const controller=new AbortController();
+  const owned=new Set();
   let promptReg;
   if(typeof ctx.session?.hook==="function"){{
-    promptReg=await ctx.session.hook("prompt",async p=>markWorking(p?.sessionID||p?.sessionId,p?.cwd||ctx.location?.directory,true));
+    promptReg=await ctx.session.hook("prompt",async p=>{{const id=p?.sessionID||p?.sessionId;if(id)owned.add(id);markWorking(id,p?.cwd||ctx.location?.directory,true);}});
   }}
-  const consuming=(async()=>{{try{{
-    for await(const input of ctx.event.subscribe({{signal:controller.signal}})){{
-      if(controller.signal.aborted)break;
-      try{{await handle(ctx,input);}}catch{{}}
-    }}
-  }}catch{{ /* subscription shutdown ends owned sessions below */ }}
-  finally{{for(const [id,st] of store.sessions)markEnd(id,st.cwd);}}}})();
-  return async()=>{{controller.abort();await promptReg?.dispose?.();await consuming;}};
+  // A transport disconnect is not a completed execution. Reattach, and compare
+  // the known sessions with the host's durable busy/idle times to catch a
+  // terminal event missed while the stream was unavailable.
+  let reconciling=false;
+  const reconcile=async()=>{{
+    if(reconciling||controller.signal.aborted)return;
+    if(typeof ctx.session?.get!=="function")return;
+    reconciling=true;
+    try{{for(const id of owned){{
+      const st=store.sessions.get(id);if(!st)continue;
+      const revision=st.revision;
+      try{{
+        const result=await ctx.session.get({{sessionID:id}}),info=result?.data||result;
+        if(controller.signal.aborted||store.sessions.get(id)!==st||st.revision!==revision)continue;
+        const millis=v=>v==null?NaN:typeof v==="number"?v:typeof v.epochMillis==="number"?v.epochMillis:new Date(v).getTime();
+        const busy=millis(info?.time?.busy),idle=millis(info?.time?.idle);
+        if(Number.isFinite(idle)&&(!Number.isFinite(busy)||idle>=busy))markIdle(id,st.cwd);
+        // Keep pending user input paused; silence never implies completion.
+      }}catch{{ /* a temporary metadata failure is not a terminal event */ }}
+    }}}}finally{{reconciling=false;}}
+  }};
+  const checking=setInterval(()=>{{void reconcile();}},2000);checking.unref?.();
+  const delay=()=>new Promise(resolve=>{{
+    const done=()=>{{clearTimeout(timer);controller.signal.removeEventListener("abort",done);resolve();}};
+    const timer=setTimeout(done,500);controller.signal.addEventListener("abort",done,{{once:true}});
+    if(controller.signal.aborted)done();
+  }});
+  const consuming=(async()=>{{while(!controller.signal.aborted){{
+    try{{
+      for await(const input of ctx.event.subscribe({{signal:controller.signal}})){{
+        if(controller.signal.aborted)break;
+        const data=input?.data||input?.properties||{{}};
+        const id=data.sessionID||data.sessionId||data.form?.sessionID||data.info?.sessionID||data.info?.id;
+        if(id)owned.add(id);
+        try{{await handle(ctx,input);}}catch{{}}
+      }}
+    }}catch{{ /* reconnect below without releasing ongoing reasoning/tools */ }}
+    if(!controller.signal.aborted){{await reconcile();await delay();}}
+  }}}})();
+  return async()=>{{controller.abort();clearInterval(checking);await promptReg?.dispose?.();await consuming;for(const id of owned)markEnd(id,store.sessions.get(id)?.cwd);}};
 }}
 export default {{ id: "ember-hooks", server: EmberHooks, setup }};
 "#
@@ -968,12 +1007,14 @@ export default function emberExtension(pi) {{
   on("turn_start", (event, ctx) => fire("working", id(ctx, event)));
   on("tool_call", (event, ctx) => {{
     const name = event?.toolName || event?.tool_name;
-    fire(["ask", "ask_user", "question", "AskUserQuestion"].includes(name) ? "waiting" : "working", id(ctx, event));
+    const sessionId=id(ctx,event);
+    if (["ask", "ask_user", "question", "AskUserQuestion"].includes(name)) fire("waiting",sessionId);
+    else if (!waiting.has(sessionId)) fire("working",sessionId);
   }});
   on("tool_execution_end", (event, ctx) => {{
     if (["ask", "ask_user", "question", "AskUserQuestion"].includes(event?.toolName || event?.tool_name)) fire("resume", id(ctx, event));
   }});
-  on("tool_execution_start", (event, ctx) => fire("working", id(ctx, event)));
+  on("tool_execution_start", (event, ctx) => {{const sessionId=id(ctx,event);if(!waiting.has(sessionId))fire("working",sessionId);}});
   on("agent_settled", (event, ctx) => fire("idle", id(ctx, event)));
   on("ui_prompt_start", (event, ctx) => fire("waiting", id(ctx, event)));
   on("ui_prompt_end", (event, ctx) => fire("resume", id(ctx, event)));
@@ -1076,12 +1117,14 @@ export default function emberExtension(pi) {{
   on("agent_start", (event, ctx) => fire("working", id(ctx, event)));
   on("tool_call", (event, ctx) => {{
     const name = event?.toolName || event?.tool_name;
-    fire(["ask", "ask_user", "question", "AskUserQuestion"].includes(name) ? "waiting" : "working", id(ctx, event));
+    const sessionId=id(ctx,event);
+    if (["ask", "ask_user", "question", "AskUserQuestion"].includes(name)) fire("waiting",sessionId);
+    else if (!waiting.has(sessionId)) fire("working",sessionId);
   }});
   on("tool_execution_end", (event, ctx) => {{
     if (["ask", "ask_user", "question", "AskUserQuestion"].includes(event?.toolName || event?.tool_name)) fire("resume", id(ctx, event));
   }});
-  on("tool_execution_start", (event, ctx) => fire("working", id(ctx, event)));
+  on("tool_execution_start", (event, ctx) => {{const sessionId=id(ctx,event);if(!waiting.has(sessionId))fire("working",sessionId);}});
   on("agent_end", (event, ctx) => {{
     if (event?.willContinue === true) return;
     fire("idle", id(ctx, event));
@@ -1179,6 +1222,9 @@ pub struct InstallStatus {
 
 /// Compute the install/remove status of an agent from its config file.
 pub fn status(agent: AgentId) -> InstallStatus {
+    if agent == AgentId::Cline {
+        return cline::status(&current_exe());
+    }
     if !supported(agent) {
         return InstallStatus {
             installed: false,
@@ -1499,7 +1545,7 @@ pub fn preview(agent: AgentId, op: Op) -> Result<ChangePreview, String> {
 
     let rendered = render(agent, op)?;
     let diff = diff_lines(&rendered.before, &rendered.after);
-    let backup = if rendered.creates {
+    let backup = if rendered.creates || agent == AgentId::Cline {
         None
     } else {
         Some(backup_path(&rendered.path).display().to_string())
@@ -1531,8 +1577,11 @@ pub fn preview(agent: AgentId, op: Op) -> Result<ChangePreview, String> {
 }
 
 pub fn apply(agent: AgentId, op: Op) -> Result<InstallResult, String> {
+    if agent == AgentId::Cline {
+        return cline::apply(op, &current_exe());
+    }
     if !supported(agent) {
-        return Err("Cline has no installable hook surface".into());
+        return Err("This integration has no installable hook surface".into());
     }
     let exe = current_exe();
     let rendered = render(agent, op)?;
@@ -1985,7 +2034,9 @@ command_windows = '"C:\Old\Place\ember.exe" hook codex start'
 
         // Mid-run idle-ish events are intentionally unmapped: only the
         // terminal execution events may end a run.
-        assert!(js.contains(r#"case "session.idle": if(v1)"#));
+        assert!(
+            js.contains(r#"case "session.idle": if(v1&&!store.sessions.get(id)?.executionOwned)"#)
+        );
         assert!(!js.contains("else if (st === \"idle\")"));
     }
 
@@ -2084,13 +2135,18 @@ command_windows = '"C:\Old\Place\ember.exe" hook codex start'
     }
 
     #[test]
-    fn cline_is_unsupported_end_to_end() {
-        assert!(!supported(AgentId::Cline));
-        assert!(render(AgentId::Cline, Op::Install).is_err());
-        assert!(apply(AgentId::Cline, Op::Install).is_err());
-        let st = status(AgentId::Cline);
-        assert!(!st.installed);
-        assert!(st.detail.contains("process tree"));
+    fn cline_exposes_the_current_windows_hook_contract() {
+        assert!(supported(AgentId::Cline));
+        assert!(
+            bindings(AgentId::Cline)
+                .iter()
+                .any(|b| b.config_event == "TaskCancel" && b.ember_event == HookEvent::Idle)
+        );
+        assert!(
+            target_path(AgentId::Cline)
+                .unwrap()
+                .ends_with("UserPromptSubmit.ps1")
+        );
     }
 
     #[test]

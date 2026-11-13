@@ -2,6 +2,35 @@
 
 All notable changes to [Ember](https://github.com/sanirudh17/Ember) are documented here.
 
+## [v1.2.0] - 2026-11-13
+
+### Added
+
+- Global Cline Windows PowerShell hooks, including task cancellation/completion, user questions, redirected Documents folders and SDK discovery. Existing user policy scripts are preserved and bundle failures roll back.
+- Read-only T3 Code and GOAT session metadata support, including private Antigravity ACP profiles and GOAT stable/nightly homes. Native thread identities avoid duplicate hook/harness rows.
+- Persistent last-hook state with live process creation-time validation, allowing active sessions to be recovered when Ember reopens.
+- Real Windows power API integration coverage and an expanded detection/recovery verification report.
+
+### Fixed
+
+- Open processes appear immediately at startup, and the first snapshot contains discovered sessions. CPU cannot classify hook-supported agents as working merely because a GUI starts, indexes files or receives typing.
+- OpenCode reconnects its v2 event stream without ending ongoing reasoning or tools. Recovery recognizes native date objects, and old metadata replies cannot override newer executions. V2 execution ownership also applies through its compatible v1 adapter.
+- Pi and Oh My Pi tool-start callbacks no longer override pending user input. Cancellation, guarded resume and late-callback safeguards remain shared across agent integrations.
+- Explicit idle/end events release on the next engine tick without an additional release floor. Short cache-file contention no longer silently drops an idle update.
+- First-run windows are compact and placed inside the Windows work area with taskbar clearance. Valid user-adjusted geometry and maximization are preserved.
+
+### Changed
+
+- Dark mode uses neutral graphite surfaces, warm white text, subtle borders and amber controls. The approved layout and light theme remain intact.
+- Settings explains Windows' battery-powered Modern Standby limitation. Plug in for extended runs on these devices.
+
+### Upgrade notes
+
+- Repair existing integrations in Agents, then restart or reload their hosts. Changed Codex hooks retain the normal host trust review.
+- Current Cline builds can use the new Windows hooks; enable Hooks in Cline and reload. Older or disabled Cline hosts retain approximate CPU fallback. Exact boundaries require host lifecycle events, and universal perfect detection is not claimed.
+- Ember prevents automatic idle sleep during accepted power requests, not explicit shutdown or Windows safety actions. Modern Standby can expire battery-powered requests.
+- The updater public key and endpoint are unchanged from v1.0.0 and v1.1.0.
+
 ## [v1.1.0] - 2026-11-03
 
 ### Changed
