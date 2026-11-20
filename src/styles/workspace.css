@@ -191,23 +191,23 @@
 :root[data-theme="light"] { --chrome: #e5e9f0; --bg: #fbfcfe; --surface: #eaf0f6; --hover: #e0e7f0; --glass-edge: #ccd5e2; --glass-strong: #d6dfeb; }
 .hold-toolbar { border-color: color-mix(in srgb,var(--glass-edge) 65%,transparent); }
 
-/* High-contrast studio palette: warm espresso-charcoal dark + crisp light + Ember amber. */
+/* High-contrast studio palette: deep smoked-obsidian dark + crisp light + Ember amber. */
 :root, :root[data-theme="dark"] {
-  --chrome: #1c1917;
-  --bg: #0c0b0a;
-  --surface: #171412;
-  --hover: #25211e;
-  --ink: #f6f3ef;
-  --muted: #a69f98;
-  --track: #35302c;
-  --glass-solid: #1a1715;
-  --glass-strong: #2e2925;
-  --glass-edge: #302b27;
-  --border-strong: #463f3a;
+  --chrome: #151413;
+  --bg: #080808;
+  --surface: #121110;
+  --hover: #1d1c1a;
+  --ink: #f5f4f2;
+  --muted: #9e9b97;
+  --track: #2e2c2a;
+  --glass-solid: #141312;
+  --glass-strong: #262422;
+  --glass-edge: #272523;
+  --border-strong: #3b3835;
   --accent-ink: #1a1208;
-  --card-rim: inset 0 1px 0 rgba(255, 248, 240, 0.06);
-  --seg-thumb-shadow: inset 0 1px 0 rgba(255, 248, 240, 0.10), 0 1px 3px rgba(0, 0, 0, 0.54), 0 0 0 1px rgba(255, 248, 240, 0.07);
-  --page-glow: rgba(255, 236, 214, 0.032);
+  --card-rim: inset 0 1px 0 rgba(255, 252, 248, 0.055);
+  --seg-thumb-shadow: inset 0 1px 0 rgba(255, 252, 248, 0.09), 0 1px 3px rgba(0, 0, 0, 0.56), 0 0 0 1px rgba(255, 252, 248, 0.06);
+  --page-glow: rgba(255, 248, 240, 0.024);
 }
 
 :root[data-theme="light"] {
