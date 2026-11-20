@@ -27,6 +27,13 @@ pub const LIVE_PID_IDLE_TRUST: Duration = Duration::from_secs(90);
 /// without this window; a newly opened session never earns a hold.
 pub const APPROX_DWELL: Duration = Duration::from_secs(4);
 
+/// Upper bound on total silence from a live process that claims to be Working.
+/// Multi-minute reasoning turns without intermediate tool calls easily stay
+/// well inside this window (and OpenCode/Pi/OMP/GOAT refresh every 1–30s), while
+/// an abandoned terminal whose `Stop` hook was missed (e.g. Codex Ctrl+C) cannot
+/// pin the PC awake for hours or days.
+pub const LIVE_PID_SILENCE_CAP: Duration = Duration::from_secs(45 * 60);
+
 /// Hook messages whose timestamp is older than this are treated as replays and
 /// dropped. The comparison is relative to "now", so a system clock correction
 /// after resume-from-sleep can never mute every future hook.
@@ -489,14 +496,17 @@ impl Registry {
     /// Demote silent working sessions, drop dead PIDs.
     pub fn tick(&mut self, stale_timeout: Duration, alive: &HashSet<u32>, now: Instant) {
         for session in self.sessions.values_mut() {
-            // A live agent process keeps its session Working: a long reasoning
-            // or tool phase can easily outlive the stale window, and the
-            // process table is a far better liveness signal than silence. The
-            // dead-pid sweep below still removes sessions whose process exits.
+            // A live agent process survives ordinary reasoning silence past
+            // `stale_timeout`, up to `LIVE_PID_SILENCE_CAP` so a missed `Stop`
+            // hook (e.g. user interrupt/abort) cannot hold the PC awake forever.
             let pid_alive = session.pid.map(|p| alive.contains(&p)).unwrap_or(false);
+            let limit = if pid_alive {
+                stale_timeout.max(LIVE_PID_SILENCE_CAP)
+            } else {
+                stale_timeout
+            };
             if session.state == SessionState::Working
-                && !pid_alive
-                && now.duration_since(session.last_event) >= stale_timeout
+                && now.duration_since(session.last_event) >= limit
             {
                 session.state = SessionState::Idle;
                 session.state_since = now;
@@ -625,21 +635,39 @@ mod tests {
                 1,
                 "live reasoning must survive silence"
             );
+            // Past the hard live-PID silence cap, an abandoned turn (missed Stop)
+            // must demote to Idle rather than pinning the PC awake forever.
+            r.tick(
+                Duration::from_secs(60),
+                &HashSet::from([42]),
+                now + LIVE_PID_SILENCE_CAP + Duration::from_secs(1),
+            );
+            assert_eq!(
+                r.working_count(agent),
+                0,
+                "silent live pid past LIVE_PID_SILENCE_CAP must demote to Idle"
+            );
+            // Fresh work re-engages cleanly.
+            r.on_hook(
+                msg(agent, HookEvent::Working, "turn", Some(42)),
+                now + LIVE_PID_SILENCE_CAP + Duration::from_secs(2),
+            );
+            assert_eq!(r.working_count(agent), 1);
             r.on_hook(
                 msg(agent, HookEvent::Waiting, "turn", Some(42)),
-                now + Duration::from_secs(601),
+                now + LIVE_PID_SILENCE_CAP + Duration::from_secs(3),
             );
             r.on_hook(
                 msg(agent, HookEvent::Idle, "turn", Some(42)),
-                now + Duration::from_secs(602),
+                now + LIVE_PID_SILENCE_CAP + Duration::from_secs(4),
             );
             r.on_hook(
                 msg(agent, HookEvent::Resume, "turn", Some(42)),
-                now + Duration::from_secs(603),
+                now + LIVE_PID_SILENCE_CAP + Duration::from_secs(5),
             );
             r.on_hook(
                 msg(agent, HookEvent::Heartbeat, "turn", Some(42)),
-                now + Duration::from_secs(604),
+                now + LIVE_PID_SILENCE_CAP + Duration::from_secs(6),
             );
             assert_eq!(
                 r.working_count(agent),
@@ -648,15 +676,15 @@ mod tests {
             );
             r.on_hook(
                 msg(agent, HookEvent::End, "turn", Some(42)),
-                now + Duration::from_secs(605),
+                now + LIVE_PID_SILENCE_CAP + Duration::from_secs(7),
             );
             r.on_hook(
                 msg(agent, HookEvent::Heartbeat, "turn", Some(42)),
-                now + Duration::from_secs(606),
+                now + LIVE_PID_SILENCE_CAP + Duration::from_secs(8),
             );
             r.on_hook(
                 msg(agent, HookEvent::Resume, "turn", Some(42)),
-                now + Duration::from_secs(606),
+                now + LIVE_PID_SILENCE_CAP + Duration::from_secs(8),
             );
             assert!(
                 r.is_empty(),
@@ -1235,16 +1263,27 @@ mod tests {
         );
         let alive: HashSet<u32> = HashSet::from([777]);
 
-        // Thirty hours of silence: the process is still alive, the run may
-        // simply be thinking. The session must stay Working.
+        // Past the 20m stale window but within the 45m live-PID silence cap:
+        // a genuinely long reasoning phase stays Working.
         r.tick(
             Duration::from_secs(20 * 60),
             &alive,
-            t0 + Duration::from_secs(30 * 3600),
+            t0 + Duration::from_secs(30 * 60),
         );
         let s = r.get(AgentId::OpenCode, "long").unwrap();
         assert_eq!(s.state, SessionState::Working);
         assert!(!s.stale);
+
+        // Multi-hour total silence (e.g. a missed Stop hook on an idle terminal)
+        // must not pin the PC awake indefinitely; demote past LIVE_PID_SILENCE_CAP.
+        r.tick(
+            Duration::from_secs(20 * 60),
+            &alive,
+            t0 + LIVE_PID_SILENCE_CAP + Duration::from_secs(1),
+        );
+        let s = r.get(AgentId::OpenCode, "long").unwrap();
+        assert_eq!(s.state, SessionState::Idle);
+        assert!(s.stale);
     }
 
     #[test]

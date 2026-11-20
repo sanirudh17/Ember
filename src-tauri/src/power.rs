@@ -2,10 +2,18 @@
 //!
 //! The request is owned by this process, so it disappears automatically if
 //! Ember dies — Windows never needs a cleanup pass.
+//!
+//! On Windows Modern Standby (S0 Low Power Idle) devices,
+//! `PowerRequestSystemRequired` alone does not prevent Modern Standby process
+//! dampening once the display turns off; we also assert
+//! `PowerRequestExecutionRequired` (best-effort) alongside it, and
+//! `PowerRequestDisplayRequired` whenever display keep-on is requested (such as
+//! during a manual hold or when `keep_display_on` is enabled).
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Power::{
-    PowerClearRequest, PowerRequestDisplayRequired, PowerRequestSystemRequired,
+    PowerClearRequest, PowerRequestDisplayRequired, PowerRequestExecutionRequired,
+    PowerRequestSystemRequired,
 };
 #[cfg(not(test))]
 use windows::Win32::System::Power::{PowerCreateRequest, PowerSetRequest};
@@ -22,6 +30,9 @@ pub struct SleepBlocker {
     reason: Vec<u16>,
     reason_text: String,
     keep_display: bool,
+    execution_held: bool,
+    /// Monotonic generation bumped on every fresh OS request creation.
+    generation: u64,
 }
 
 /// `HANDLE` is a raw pointer, so it is not `Send` by default. The power request
@@ -44,6 +55,8 @@ impl SleepBlocker {
             reason: Vec::new(),
             reason_text: String::new(),
             keep_display: false,
+            execution_held: false,
+            generation: 0,
         }
     }
 
@@ -53,6 +66,14 @@ impl SleepBlocker {
 
     pub fn keeps_display(&self) -> bool {
         self.keep_display
+    }
+
+    pub fn holds_execution(&self) -> bool {
+        self.execution_held
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn reason(&self) -> &str {
@@ -85,26 +106,41 @@ impl SleepBlocker {
             // The buffer cannot grow in place; fall through to a fresh request.
         }
 
-        let (handle, wide) = create_request(reason, keep_display)?;
+        self.swap_request(reason, keep_display)
+    }
+
+    /// Force a fresh OS power request (creating the new one before releasing
+    /// the old one) so Windows resume / AC-DC transitions cannot leave us
+    /// holding a terminated request on Modern Standby hardware.
+    pub fn reassert(&mut self, reason: &str, keep_display: bool) -> Result<(), String> {
+        self.swap_request(reason, keep_display)
+    }
+
+    fn swap_request(&mut self, reason: &str, keep_display: bool) -> Result<(), String> {
+        let (handle, wide, execution_held) = create_request(reason, keep_display)?;
 
         // Swap: the new request is live; drop the old one with its own flags.
         let old_display = self.keep_display;
+        let old_execution = self.execution_held;
         if let Some(SendHandle(old)) = self.handle.take() {
-            release_handle(old, old_display);
+            release_handle(old, old_display, old_execution);
         }
         self.handle = Some(SendHandle(handle));
         // The heap buffer stays alive for as long as the handle does.
         self.reason = wide;
         self.reason_text = reason.to_string();
         self.keep_display = keep_display;
+        self.execution_held = execution_held;
+        self.generation = self.generation.saturating_add(1);
         Ok(())
     }
 
     pub fn release(&mut self) {
         if let Some(SendHandle(handle)) = self.handle.take() {
-            release_handle(handle, self.keep_display);
+            release_handle(handle, self.keep_display, self.execution_held);
         }
         self.keep_display = false;
+        self.execution_held = false;
         self.reason_text.clear();
         self.reason.clear();
     }
@@ -121,12 +157,15 @@ fn make_wide(reason: &str) -> Vec<u16> {
 
 /// Clear and close one request. `handle` is null only under unit tests, where
 /// no real OS request was ever created.
-fn release_handle(handle: HANDLE, keep_display: bool) {
+fn release_handle(handle: HANDLE, keep_display: bool, execution_held: bool) {
     if handle.is_invalid() {
         return;
     }
     unsafe {
         let _ = PowerClearRequest(handle, PowerRequestSystemRequired);
+        if execution_held {
+            let _ = PowerClearRequest(handle, PowerRequestExecutionRequired);
+        }
         if keep_display {
             let _ = PowerClearRequest(handle, PowerRequestDisplayRequired);
         }
@@ -135,7 +174,7 @@ fn release_handle(handle: HANDLE, keep_display: bool) {
 }
 
 #[cfg(not(test))]
-fn create_request(reason: &str, keep_display: bool) -> Result<(HANDLE, Vec<u16>), String> {
+fn create_request(reason: &str, keep_display: bool) -> Result<(HANDLE, Vec<u16>, bool), String> {
     let mut wide = make_wide(reason);
     let ctx = REASON_CONTEXT {
         Version: 0,
@@ -150,21 +189,37 @@ fn create_request(reason: &str, keep_display: bool) -> Result<(HANDLE, Vec<u16>)
             let _ = CloseHandle(handle);
             return Err(format!("PowerSetRequest(SystemRequired): {e}"));
         }
+        // On Modern Standby (S0 Low Power Idle) devices, ExecutionRequired
+        // prevents process dampening/standby when the screen is off. Best-effort
+        // so older or restricted environments still retain SystemRequired.
+        let execution_held = match PowerSetRequest(handle, PowerRequestExecutionRequired) {
+            Ok(()) => true,
+            Err(e) => {
+                crate::log::append(
+                    "POWER",
+                    &format!("PowerSetRequest(ExecutionRequired) skipped: {e}"),
+                );
+                false
+            }
+        };
         if keep_display && let Err(e) = PowerSetRequest(handle, PowerRequestDisplayRequired) {
+            if execution_held {
+                let _ = PowerClearRequest(handle, PowerRequestExecutionRequired);
+            }
             let _ = PowerClearRequest(handle, PowerRequestSystemRequired);
             let _ = CloseHandle(handle);
             return Err(format!("PowerSetRequest(DisplayRequired): {e}"));
         }
-        Ok((handle, wide))
+        Ok((handle, wide, execution_held))
     }
 }
 
 /// Unit tests must never touch the machine's real power-request table: they
 /// get a null handle so every engage/release code path stays identical.
 #[cfg(test)]
-fn create_request(reason: &str, keep_display: bool) -> Result<(HANDLE, Vec<u16>), String> {
+fn create_request(reason: &str, keep_display: bool) -> Result<(HANDLE, Vec<u16>, bool), String> {
     let _ = keep_display;
-    Ok((HANDLE(std::ptr::null_mut()), make_wide(reason)))
+    Ok((HANDLE(std::ptr::null_mut()), make_wide(reason), true))
 }
 
 impl Drop for SleepBlocker {
@@ -206,6 +261,8 @@ mod tests {
             .engage("Ember: 1 coding agent working", false)
             .unwrap();
         assert!(blocker.is_engaged());
+        assert!(blocker.holds_execution());
+        assert_eq!(blocker.generation(), 1);
         assert_eq!(blocker.reason(), "Ember: 1 coding agent working");
 
         // The agent count changes on almost every tick; the hold must not be
@@ -214,16 +271,28 @@ mod tests {
             .engage("Ember: 2 coding agents working", false)
             .unwrap();
         assert!(blocker.is_engaged());
+        assert_eq!(blocker.generation(), 1);
         assert_eq!(blocker.reason(), "Ember: 2 coding agents working");
 
-        // Display keeps its own flag and survives a reason update.
+        // Display keeps its own flag and creates a fresh request when toggled.
         blocker
             .engage("Ember: manual session + 2 agents working", true)
             .unwrap();
         assert!(blocker.keeps_display());
+        assert!(blocker.holds_execution());
+        assert_eq!(blocker.generation(), 2);
+
+        // Explicit reassert refreshes the request even when parameters match.
+        blocker
+            .reassert("Ember: manual session + 2 agents working", true)
+            .unwrap();
+        assert_eq!(blocker.generation(), 3);
+        assert!(blocker.keeps_display());
+        assert!(blocker.holds_execution());
 
         blocker.release();
         assert!(!blocker.is_engaged());
         assert!(!blocker.keeps_display());
+        assert!(!blocker.holds_execution());
     }
 }

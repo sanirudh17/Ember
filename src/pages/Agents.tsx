@@ -1,10 +1,8 @@
 /**
- * Agents — what Ember sees on this machine, and one honest dialog for
- * installing or removing hook integrations. Nothing is applied without a
- * preview first.
+ * Agents — detected coding tools, hook integrations, and live sessions.
  */
 
-import { type CSSProperties, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AgentIcon } from "../components/AgentIcon";
 import { Button } from "../components/ui";
@@ -89,8 +87,6 @@ export function AgentsPage() {
   };
 
   const detectedCount = snapshot.agents.filter((a) => a.detected).length;
-  const anyDetected = detectedCount > 0;
-
   const working = snapshot.sessions.filter((s) => s.state === "working").length;
   const idle = snapshot.sessions.length - working;
 
@@ -102,67 +98,79 @@ export function AgentsPage() {
 
   return (
     <div className="page page--agents">
-      <header className="pagehead col">
-        <h1 className="h1" data-rise style={{ "--i": 0 } as CSSProperties}>
-          Agents
-        </h1>
-        <p className="sub" data-rise style={{ "--i": 1 } as CSSProperties}>
-          Your coding tools, connected to Ember.
-        </p>
+      <header className="pagehead">
+        <h1 className="h1">Agents</h1>
+        <Button variant="quiet" size="sm" onClick={() => void api.refreshAgents()}>
+          Rescan
+        </Button>
       </header>
 
-      <section className="section wide" data-reveal>
-        <div className="sechead" data-rise style={{ "--i": 0 } as CSSProperties}>
-          <h2 className="h2">Watching</h2>
-          <Button variant="ghost" size="sm" onClick={() => void api.refreshAgents()}>
-            Rescan
-          </Button>
+      <section className="section">
+        <div className="sechead">
+          <div className="sechead__title">
+            <h2 className="h2">Watching</h2>
+            <span className="count-pill">
+              {detectedCount} / {snapshot.agents.length} detected
+            </span>
+          </div>
         </div>
-        <p className="meta">
-          {detectedCount} of {snapshot.agents.length} detected
-        </p>
+
         {error && !preview && (
-          <p className="meta" role="alert">
+          <p className="inline-error" role="alert">
             {error}
           </p>
         )}
-        {anyDetected ? (
+
+        {detectedCount > 0 ? (
           <table className="table">
             <thead>
               <tr>
                 <th>Agent</th>
                 <th>Integration</th>
-                <th>Since</th>
-                <th />
+                <th className="num">Last active</th>
+                <th className="col-action" />
               </tr>
             </thead>
             <tbody>
-              {snapshot.agents.map((a, index) => (
-                <tr key={a.id} data-rise style={{ "--i": index } as CSSProperties}>
+              {snapshot.agents.map((a) => (
+                <tr key={a.id} className={!a.detected ? "row--muted" : undefined}>
                   <td>
                     <span className="agent-cell">
-                      <AgentIcon agent={a.id} monogram={a.monogram} size={20} />
+                      <AgentIcon agent={a.id} monogram={a.monogram} size={18} />
                       <span className="agent-cell__name">{a.name}</span>
                     </span>
                   </td>
                   <td>
-                    {!a.detected
-                      ? "Not found"
-                      : a.installed
-                        ? "Hooks installed"
-                        : a.supported
-                          ? "Hooks available"
-                          : "Process watch"}
+                    <span
+                      className={`integration-status${
+                        a.needs_repair
+                          ? " is-warn"
+                          : a.installed
+                            ? " is-ok"
+                            : !a.detected
+                              ? " is-missing"
+                              : ""
+                      }`}
+                    >
+                      {!a.detected
+                        ? "Not found"
+                        : a.needs_repair
+                          ? "Needs repair"
+                          : a.installed
+                            ? "Hooks installed"
+                            : a.supported
+                              ? "Hooks available"
+                              : "Process watch"}
+                    </span>
                   </td>
-                  <td>
-                    {a.detected && a.last_event_unix
-                      ? relativeTime(a.last_event_unix)
-                      : "—"}
+                  <td className="num">
+                    {a.detected && a.last_event_unix ? relativeTime(a.last_event_unix) : "—"}
                   </td>
-                  <td>
-                    {!a.detected || !a.supported ? null : (
+                  <td className="col-action">
+                    {a.detected && a.supported ? (
                       <Button
                         size="sm"
+                        variant={a.needs_repair ? "primary" : "quiet"}
                         disabled={loading}
                         onClick={() =>
                           openPreview(
@@ -171,32 +179,33 @@ export function AgentsPage() {
                           )
                         }
                       >
-                        {a.installed
-                          ? a.needs_repair
-                            ? "Repair"
-                            : "Remove"
-                          : "Install hooks"}
+                        {a.installed ? (a.needs_repair ? "Repair" : "Remove") : "Install"}
                       </Button>
-                    )}
+                    ) : null}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : (
-          <p className="empty-line">
-            No coding agents found on this machine yet. Install one, then Rescan.
-          </p>
+          <div className="empty-state">No coding tools detected</div>
         )}
       </section>
 
-      <section className="section wide agent-sessions" data-reveal>
-        <h2 className="h2" data-rise style={{ "--i": 0 } as CSSProperties}>
-          Sessions
-        </h2>
-        <p className="meta">
-          {working > 0 ? `${working} working · ${idle} idle` : "Nothing running"}
-        </p>
+      <section className="section">
+        <div className="sechead">
+          <div className="sechead__title">
+            <h2 className="h2">Sessions</h2>
+            <span className="count-pill">
+              {working > 0
+                ? `${working} working · ${idle} idle`
+                : sessions.length > 0
+                  ? `${idle} idle`
+                  : "None"}
+            </span>
+          </div>
+        </div>
+
         {sessions.length > 0 ? (
           <table className="table">
             <thead>
@@ -208,42 +217,37 @@ export function AgentsPage() {
               </tr>
             </thead>
             <tbody>
-              {sessions.map((s, index) => (
-                <tr
-                  key={s.session_id || `${s.agent}:${s.folder}`}
-                  data-rise
-                  style={{ "--i": index } as CSSProperties}
-                  className={s.state === "working" ? "row--working" : undefined}
-                >
-                  <td>
-                    <span className="agent-cell">
-                      <AgentIcon agent={s.agent} monogram={s.monogram} size={16} />
-                      <span className="agent-cell__name">{s.agent_name}</span>
-                    </span>
-                  </td>
-                  <td>{s.folder}</td>
-                  <td className="hide-sm">
-                    {s.state === "working" ? (
-                      <>
-                        <span className="sdot" />
-                        <span className="state-label">Working</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="sdot sdot--idle" />
-                        <span className="state-label">Idle</span>
-                      </>
-                    )}
-                  </td>
-                  <td className="num">
-                    {s.state === "working" ? duration(s.working_for_secs) : "—"}
-                  </td>
-                </tr>
-              ))}
+              {sessions.map((s) => {
+                const isWorking = s.state === "working";
+                return (
+                  <tr
+                    key={s.session_id || `${s.agent}:${s.folder}`}
+                    className={isWorking ? "row--working" : undefined}
+                  >
+                    <td>
+                      <span className="agent-cell">
+                        <AgentIcon agent={s.agent} monogram={s.monogram} size={16} />
+                        <span className="agent-cell__name">{s.agent_name}</span>
+                      </span>
+                    </td>
+                    <td>{s.folder}</td>
+                    <td className="hide-sm">
+                      <span className="state-cell">
+                        <span
+                          className={`sdot${isWorking ? "" : " sdot--idle"}`}
+                          aria-hidden="true"
+                        />
+                        <span className="state-label">{isWorking ? "Working" : "Idle"}</span>
+                      </span>
+                    </td>
+                    <td className="num">{isWorking ? duration(s.working_for_secs) : "—"}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         ) : (
-          <p className="empty-line">Nothing is running right now.</p>
+          <div className="empty-state">No open sessions</div>
         )}
       </section>
 
@@ -260,7 +264,9 @@ export function AgentsPage() {
           <div className="dialog">
             {result ? (
               <>
-                <h3 className="dialog__title" id="agents-dialog-title">Done.</h3>
+                <h3 className="dialog__title" id="agents-dialog-title">
+                  Done
+                </h3>
                 <p className="dialog__text">{result.message}</p>
                 <div className="dialog__actions">
                   <Button variant="primary" onClick={closeAfterSuccess}>
@@ -271,14 +277,10 @@ export function AgentsPage() {
             ) : (
               <>
                 <h3 className="dialog__title" id="agents-dialog-title">
-                  {target?.op === "install" ? "Install" : "Remove"} {preview.name}{" "}
-                  hooks?
+                  {target?.op === "install" ? "Install" : "Remove"} {preview.name} hooks
                 </h3>
                 <p className="dialog__text">{preview.summary}</p>
-                <p className="dialog__text">{preview.note}</p>
-                {preview.file && (
-                  <p className="dialog__text">File: {preview.file}</p>
-                )}
+                {preview.file && <p className="dialog__path">{preview.file}</p>}
                 {preview.diff.length > 0 && (
                   <div className="diff">
                     {preview.diff.map((l, i) => (
@@ -296,7 +298,7 @@ export function AgentsPage() {
                   </div>
                 )}
                 {error && (
-                  <p className="meta" role="alert">
+                  <p className="inline-error" role="alert">
                     {error}
                   </p>
                 )}
@@ -305,11 +307,7 @@ export function AgentsPage() {
                     Cancel
                   </Button>
                   <Button variant="primary" disabled={busy} onClick={() => void apply()}>
-                    {busy
-                      ? "Working…"
-                      : target?.op === "install"
-                        ? "Install hooks"
-                        : "Remove"}
+                    {busy ? "Working…" : target?.op === "install" ? "Install" : "Remove"}
                   </Button>
                 </div>
               </>

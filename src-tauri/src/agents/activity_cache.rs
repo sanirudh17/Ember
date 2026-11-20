@@ -3,13 +3,19 @@
 //! session files from creating holds after a process exits or its PID is reused.
 use super::{
     process::process_start_time,
-    registry::{HookEvent, HookMessage, Registry, unix_now},
+    registry::{HookEvent, HookMessage, LIVE_PID_SILENCE_CAP, Registry, unix_now},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::time::Instant;
+
+/// Maximum age of a cached `Working` event that may be restored as still active
+/// when Ember launches. Matches the live-PID silence cap so an interrupted turn
+/// whose `Stop` hook never fired (e.g. Codex Ctrl+C) cannot resurrect days
+/// later as an active hold.
+pub const MAX_CACHED_WORK_AGE_SECS: u64 = LIVE_PID_SILENCE_CAP.as_secs();
 
 #[derive(Serialize, Deserialize)]
 struct Cached {
@@ -45,7 +51,7 @@ fn record_at(dir: &Path, message: &HookMessage) {
         .truncate(false)
         .read(true)
         .write(true)
-        .open(lock_path)
+        .open(&lock_path)
     else {
         return;
     };
@@ -62,6 +68,8 @@ fn record_at(dir: &Path, message: &HookMessage) {
     let previous = read(&path).filter(|c| c.birth == birth);
     if message.event == HookEvent::End {
         let _ = std::fs::remove_file(&path);
+        drop(lock);
+        let _ = std::fs::remove_file(&lock_path);
         return;
     }
     let phase = reduce(previous.as_ref().map(|c| c.message.event), message.event);
@@ -103,23 +111,44 @@ fn restore_from(dir: &Path, registry: &mut Registry, now: Instant) {
     let Ok(files) = std::fs::read_dir(dir) else {
         return;
     };
-    for path in files
-        .flatten()
-        .map(|f| f.path())
+    let now_u = unix_now();
+    let entries: Vec<std::path::PathBuf> = files.flatten().map(|f| f.path()).take(2048).collect();
+    for path in entries
+        .iter()
         .filter(|p| p.extension().is_some_and(|e| e == "json"))
-        .take(1024)
     {
-        let Some(mut cached) = read(&path) else {
+        let Some(mut cached) = read(path) else {
             continue;
         };
         if cached.message.pid.and_then(process_start_time) != Some(cached.birth) {
-            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(path.with_extension("lock"));
             continue;
         }
-        // Liveness is checked against process creation, so a live hour-long
-        // reasoning turn remains valid regardless of when Ember was reopened.
-        cached.message.ts = unix_now();
+        // A live turn that fired within the silence cap survives Ember
+        // reopening. An ancient cached `Working` event (for instance a Codex
+        // terminal whose turn was cancelled without firing `Stop` days ago)
+        // must not resurrect as active work; demote it to Idle and retire the
+        // stale file.
+        let stale_working = cached.message.event == HookEvent::Working
+            && cached.message.ts > 0
+            && now_u.saturating_sub(cached.message.ts) > MAX_CACHED_WORK_AGE_SECS;
+        if stale_working {
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(path.with_extension("lock"));
+            cached.message.event = HookEvent::Idle;
+        }
+        cached.message.ts = now_u;
         registry.on_hook(cached.message, now);
+    }
+    // Prune orphaned 0-byte `.lock` files whose `.json` cache entry is gone.
+    for path in entries
+        .iter()
+        .filter(|p| p.extension().is_some_and(|e| e == "lock"))
+    {
+        if !path.with_extension("json").exists() {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }
 #[cfg(test)]
@@ -242,7 +271,7 @@ mod tests {
             session_id: Some("restart".into()),
             cwd: Some("project".into()),
             pid: Some(std::process::id()),
-            ts: 1,
+            ts: unix_now().saturating_sub(1_200),
         };
         record_at(&dir, &msg);
         let now = Instant::now();
@@ -250,9 +279,10 @@ mod tests {
         restore_from(&dir, &mut registry, now);
         assert!(
             registry.any_working(|_| true),
-            "even an old live reasoning phase survives reopening"
+            "a live 20-minute reasoning phase survives reopening"
         );
         msg.event = HookEvent::Idle;
+        msg.ts = unix_now();
         record_at(&dir, &msg);
         msg.event = HookEvent::Resume;
         record_at(&dir, &msg);
@@ -274,6 +304,43 @@ mod tests {
         assert!(registry.is_empty());
         assert!(!path.exists());
         // Only this test's newly-created temporary directory is removed.
+        assert!(dir.starts_with(std::env::temp_dir()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn stale_cached_working_turn_does_not_resurrect_as_working_and_cleans_locks() {
+        let dir = std::env::temp_dir().join(format!(
+            "ember-cache-stale-{}-{}",
+            std::process::id(),
+            unix_now()
+        ));
+        let stale_ts = unix_now().saturating_sub(MAX_CACHED_WORK_AGE_SECS + 3_600);
+        let msg = HookMessage {
+            agent: super::super::AgentId::Codex,
+            event: HookEvent::Working,
+            session_id: Some("abandoned-codex".into()),
+            cwd: Some("C:\\Users\\sanir\\Claude Code".into()),
+            pid: Some(std::process::id()),
+            ts: stale_ts,
+        };
+        record_at(&dir, &msg);
+        // Also drop an orphaned `.lock` file to ensure restore prunes it.
+        let orphan = dir.join("opencode-99999-deadbeef.lock");
+        std::fs::write(&orphan, b"").unwrap();
+
+        let now = Instant::now();
+        let mut registry = Registry::new();
+        restore_from(&dir, &mut registry, now);
+        assert!(
+            !registry.any_working(|_| true),
+            "an abandoned cached working turn older than the silence cap must demote to Idle"
+        );
+        assert_eq!(registry.len(), 1);
+        assert!(
+            !orphan.exists(),
+            "orphaned .lock files must be pruned on restore"
+        );
         assert!(dir.starts_with(std::env::temp_dir()));
         std::fs::remove_dir_all(dir).unwrap();
     }

@@ -20,7 +20,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::agents::process::ProcessDetector;
 use crate::agents::registry::{Registry, SessionState, any_working_or_in_grace};
 use crate::agents::{AgentId, installers};
-use crate::battery::{self, BatteryStatus, LID_CLOSED, POWER_DIRTY};
+use crate::battery::{self, BatteryStatus, LID_CLOSED, POWER_DIRTY, POWER_REASSERT};
 use crate::lid::{self, LidHold, RealPowerApi};
 use crate::power::{self, SleepBlocker};
 use crate::settings::{GRACE_SECS, STALE_TIMEOUT_MIN, Settings};
@@ -676,7 +676,19 @@ impl Engine {
                 self.hold_started_at = Some(now);
             }
             let reason = power::reason_string(self.manual.active, working_agents);
-            match self.blocker.engage(&reason, self.settings.keep_display_on) {
+            // Manual holds always keep the display awake so Windows Modern Standby
+            // (S0 Low Power Idle) cannot black out the screen and transition to
+            // standby after VIDEOIDLE expires during unattended tasks like renders.
+            // Automatic agent holds follow the user's `keep_display_on` preference
+            // while holding SystemRequired + ExecutionRequired.
+            let keep_display = self.settings.keep_display_on || self.manual.active;
+            let reassert = POWER_REASSERT.swap(false, Ordering::Relaxed);
+            let result = if reassert && self.blocker.is_engaged() {
+                self.blocker.reassert(&reason, keep_display)
+            } else {
+                self.blocker.engage(&reason, keep_display)
+            };
+            match result {
                 Ok(()) => self.blocker_error = None,
                 Err(e) => self.blocker_error = Some(e),
             }
@@ -958,21 +970,23 @@ impl Engine {
         }
     }
 
-    /// Display power is only ever touched when the `keep_display_on` option is
-    /// on: Ember then holds a `DisplayRequired` power request for as long as it
-    /// holds the PC awake. Otherwise the display follows the Windows plan.
+    /// Display power stays awake during any manual hold or whenever
+    /// `keep_display_on` is enabled. Otherwise the display follows Windows
+    /// while system and execution requests keep the PC awake.
     fn display_snapshot(&self) -> DisplaySnapshot {
-        let keep = self.settings.keep_display_on;
+        let keep = self.settings.keep_display_on || self.manual.active;
         DisplaySnapshot {
             policy_label: if keep {
                 "The screen stays on".to_string()
             } else {
                 "Windows manages the display".to_string()
             },
-            display_kept_on: self.blocker.is_engaged() && keep,
+            display_kept_on: self.blocker.is_engaged() && self.blocker.keeps_display(),
             turned_off: false,
-            note: if keep {
-                "Ember also keeps the display awake while it holds the PC.".to_string()
+            note: if self.settings.keep_display_on {
+                "Ember keeps the display awake while holding the PC.".to_string()
+            } else if self.manual.active {
+                "Manual hold keeps the display awake.".to_string()
             } else {
                 "Windows may turn the screen off while Ember keeps the PC awake.".to_string()
             },
@@ -1873,6 +1887,66 @@ mod tests {
         let out_fresh = e.tick(now + Duration::from_secs(71));
         assert!(out_fresh.snapshot.engaged);
         assert_eq!(out_fresh.notifications, vec![Notify::Engaged]);
+    }
+
+    #[test]
+    fn manual_hold_keeps_display_awake_and_reasserts_after_power_transitions() {
+        let mut e = engine();
+        e.settings.keep_display_on = false;
+        let now = Instant::now();
+        e.start_manual_secs(1_800);
+
+        let out = e.tick(now);
+        assert!(out.snapshot.engaged);
+        assert!(
+            e.sleep_blocker().keeps_display(),
+            "manual hold must request DisplayRequired even when keep_display_on is false"
+        );
+        assert!(e.sleep_blocker().holds_execution());
+        assert!(out.snapshot.display.display_kept_on);
+        let gen1 = e.sleep_blocker().generation();
+
+        POWER_REASSERT.store(true, Ordering::Relaxed);
+        e.tick(now + Duration::from_secs(1));
+        assert!(
+            e.sleep_blocker().generation() > gen1,
+            "power transitions must refresh the OS power request"
+        );
+
+        e.stop_manual();
+        e.tick(now + Duration::from_secs(2));
+        assert!(!e.sleep_blocker().is_engaged());
+        assert!(!e.sleep_blocker().keeps_display());
+    }
+
+    #[test]
+    fn agent_hold_respects_keep_display_setting_while_holding_execution() {
+        let mut e = engine();
+        e.settings.watching = true;
+        e.settings.keep_display_on = false;
+        let now = Instant::now();
+        e.registry.on_hook(
+            HookMessage {
+                agent: AgentId::ClaudeCode,
+                event: HookEvent::Working,
+                session_id: Some("disp".into()),
+                cwd: None,
+                pid: None,
+                ts: 0,
+            },
+            now,
+        );
+        e.tick(now);
+        let out = e.tick(now + Duration::from_secs(1));
+        assert!(out.snapshot.engaged);
+        assert!(e.sleep_blocker().holds_execution());
+        assert!(!e.sleep_blocker().keeps_display());
+        assert!(!out.snapshot.display.display_kept_on);
+
+        e.settings.keep_display_on = true;
+        let out2 = e.tick(now + Duration::from_secs(2));
+        assert!(e.sleep_blocker().keeps_display());
+        assert!(out2.snapshot.display.display_kept_on);
     }
 
     #[test]

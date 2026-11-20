@@ -55,29 +55,10 @@ export function App() {
     window.history.replaceState(null, "", url);
   }, [route]);
 
-  // Each screen starts at the top, and lower sections reveal themselves once.
+  // Each screen starts at the top when switching routes.
   useEffect(() => {
-    if (IS_TAURI) contentRef.current?.scrollTo({ top: 0 });
-    else window.scrollTo({ top: 0 });
-    if (!ready) return;
-    const nodes = Array.from(
-      document.querySelectorAll<HTMLElement>("[data-reveal]:not(.is-in)"),
-    );
-    if (nodes.length === 0) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("is-in");
-            observer.unobserve(entry.target);
-          }
-        }
-      },
-      { root: IS_TAURI ? contentRef.current : null, rootMargin: "0px 0px -6% 0px" },
-    );
-    nodes.forEach((node) => observer.observe(node));
-    return () => observer.disconnect();
-  }, [route, ready]);
+    contentRef.current?.scrollTo({ top: 0 });
+  }, [route]);
 
   return (
     <AppearanceProvider>

@@ -49,7 +49,20 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = resolved;
+    const root = document.documentElement;
+    if (root.dataset.theme === resolved) return;
+    root.classList.add("theme-switching");
+    root.dataset.theme = resolved;
+    // Force style flush before removing the guard so theme surfaces flip atomically
+    // while keeping segmented/switch thumb motion smooth.
+    void root.offsetHeight;
+    const frame = requestAnimationFrame(() => {
+      root.classList.remove("theme-switching");
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      root.classList.remove("theme-switching");
+    };
   }, [resolved]);
 
   return (

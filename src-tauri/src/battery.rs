@@ -30,9 +30,16 @@ const GUID_BATTERY_PERCENTAGE_REMAINING: GUID =
 /// Set whenever a power broadcast arrived; the engine repolls immediately.
 pub static POWER_DIRTY: AtomicBool = AtomicBool::new(true);
 
+/// Set when Windows resumes from sleep or switches AC/DC power source so an
+/// active hold re-asserts its OS power request (Windows Modern Standby can
+/// terminate requests across sleep or DC transitions).
+pub static POWER_REASSERT: AtomicBool = AtomicBool::new(false);
+
 /// 0 = unknown, 1 = lid closed, 2 = lid open.
 pub static LID_CLOSED: AtomicU8 = AtomicU8::new(0);
 
+const PBT_APMRESUMESUSPEND: u32 = 0x0007;
+const PBT_APMRESUMEAUTOMATIC: u32 = 0x0012;
 const PBT_POWERSETTINGCHANGE: u32 = 0x8013;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,15 +96,20 @@ struct PowerBroadcastSetting {
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if msg == 0x0218 {
         // WM_POWERBROADCAST
-        if wparam.0 as u32 == PBT_POWERSETTINGCHANGE {
+        let event = wparam.0 as u32;
+        if event == PBT_POWERSETTINGCHANGE {
             let pbs = lparam.0 as *const PowerBroadcastSetting;
             if !pbs.is_null() {
                 let setting = unsafe { &*pbs };
                 if setting.power_setting == GUID_LIDSWITCH_STATE_CHANGE {
                     let closed = setting.data[0] == 0;
                     LID_CLOSED.store(if closed { 1 } else { 2 }, Ordering::Relaxed);
+                } else if setting.power_setting == GUID_ACDC_POWER_SOURCE {
+                    POWER_REASSERT.store(true, Ordering::Relaxed);
                 }
             }
+        } else if event == PBT_APMRESUMEAUTOMATIC || event == PBT_APMRESUMESUSPEND {
+            POWER_REASSERT.store(true, Ordering::Relaxed);
         }
         POWER_DIRTY.store(true, Ordering::Relaxed);
         return LRESULT(1);

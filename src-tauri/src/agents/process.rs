@@ -470,6 +470,12 @@ const EXCLUDED_EXES: &[&str] = &[
     "windsurf.exe",
     "vscodium.exe",
     "electron.exe",
+    "codex-code-mode-host.exe",
+    "codex-code-mode-host",
+    "codex-computer-use.exe",
+    "codex-computer-use",
+    "opencode-pty.exe",
+    "opencode-pty",
 ];
 
 const RUNTIME_HOSTS: &[&str] = &["node.exe", "bun.exe", "deno.exe"];
@@ -499,19 +505,47 @@ pub fn match_agent(proc_: &Process, agents: &[AgentId]) -> Option<AgentId> {
 }
 
 /// Idle background daemons (`codex.exe app-server --managed-daemon`,
-/// `opencode.exe serve --service`) stay resident across sessions and are not
-/// interactive agent runs; their active sessions report via hooks or their
-/// own client processes.
+/// `codex-code-mode-host.exe`, `opencode.exe serve --service`,
+/// `opencode-pty.exe`) stay resident across sessions and are not interactive
+/// agent runs; their active sessions report via hooks or their own client
+/// processes.
 pub fn is_background_daemon(exe_name: &str, cmd_tokens: &[String]) -> bool {
+    if matches!(
+        exe_name,
+        "codex-code-mode-host.exe"
+            | "codex-code-mode-host"
+            | "codex-computer-use.exe"
+            | "codex-computer-use"
+            | "opencode-pty.exe"
+            | "opencode-pty"
+    ) {
+        return true;
+    }
     let args: Vec<&str> = cmd_tokens
         .iter()
         .skip(1)
         .map(|s| s.trim_matches(['"', '\'']))
         .collect();
-    if exe_name.starts_with("codex") && args.first().copied() == Some("app-server") {
+    let is_codex = exe_name.starts_with("codex")
+        || (RUNTIME_HOSTS.contains(&exe_name)
+            && runtime_entrypoint(exe_name, cmd_tokens)
+                .is_some_and(|e| e.contains("codex")));
+    if is_codex
+        && args
+            .iter()
+            .any(|a| matches!(*a, "app-server" | "--managed-daemon"))
+    {
         return true;
     }
-    if exe_name.starts_with("opencode") && args.first().copied() == Some("serve") {
+    let is_opencode = exe_name.starts_with("opencode")
+        || (RUNTIME_HOSTS.contains(&exe_name)
+            && runtime_entrypoint(exe_name, cmd_tokens)
+                .is_some_and(|e| e.contains("opencode")));
+    if is_opencode
+        && args
+            .iter()
+            .any(|a| matches!(*a, "serve" | "--service"))
+    {
         return true;
     }
     false
@@ -1023,6 +1057,31 @@ mod tests {
         for (exe, sub) in [("codex.exe", "app-server"), ("opencode.exe", "serve")] {
             assert!(is_background_daemon(exe, &[exe.into(), sub.into()]));
         }
+        assert!(is_background_daemon(
+            "codex.exe",
+            &[
+                "codex.exe".into(),
+                "--analytics-default-enabled".into(),
+                "app-server".into(),
+                "--managed-daemon".into()
+            ]
+        ));
+        assert!(is_background_daemon(
+            "node.exe",
+            &[
+                "node.exe".into(),
+                "c:\\node_modules\\@openai\\codex\\bin\\codex.js".into(),
+                "app-server".into(),
+            ]
+        ));
+        assert!(is_background_daemon(
+            "codex-code-mode-host.exe",
+            &["codex-code-mode-host.exe".into(), "--listen".into()]
+        ));
+        assert!(is_background_daemon(
+            "opencode-pty.exe",
+            &["opencode-pty.exe".into(), "daemon".into()]
+        ));
         assert!(!is_background_daemon(
             "codex.exe",
             &["codex.exe".into(), "exec".into()]

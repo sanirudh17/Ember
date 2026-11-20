@@ -1,28 +1,25 @@
 /**
- * The surviving choices. Everything Ember decides on its own is narrated
- * here rather than offered as a toggle.
+ * Settings — minimal grouped preferences with smooth sliding segmented controls.
  */
 
-import { type CSSProperties, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button, Segmented, Switch, type SegmentedOption } from "../components/ui";
 import { api } from "../lib/api";
 import { useReady, useStore } from "../lib/store";
 import type { Theme } from "../types";
 
-const THEMES = [
-  { value: "system" as const, label: "System" },
-  { value: "light" as const, label: "Light" },
-  { value: "dark" as const, label: "Dark" },
+const THEMES: SegmentedOption<Theme>[] = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
 ];
 
 const FLOOR_STEPS = ["10", "15", "20", "30"];
 
-/** String-valued choices for the per cent floor; the active one is mirrored back. */
 function floorOptionsFor(percent: number): SegmentedOption<string>[] {
   const options = FLOOR_STEPS.map((value) => ({ value, label: `${value}%` }));
   const value = String(percent);
-  // A hand-edited settings file may hold an off-step value; show it as-is.
   if (!options.some((option) => option.value === value)) {
     options.push({ value, label: `${value}%` });
   }
@@ -39,7 +36,7 @@ function parseLog(text: string): LogLine[] {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
-    .slice(-8)
+    .slice(-10)
     .map((line) => {
       if (line.startsWith("[")) {
         const end = line.indexOf("]");
@@ -73,9 +70,7 @@ export function SettingsPage() {
         .then((text) => {
           if (alive) setLog(parseLog(text));
         })
-        .catch(() => {
-          // The log is a convenience; never let it break the screen.
-        });
+        .catch(() => {});
     };
     pull();
     const timer = setInterval(pull, 5000);
@@ -89,49 +84,36 @@ export function SettingsPage() {
     void api
       .appVersion()
       .then(setVersion)
-      .catch(() => {
-        // The version line is cosmetic; never let it break the screen.
-      });
+      .catch(() => {});
   }, []);
 
-  const updateHint = updateError
+  const updateStatus = updateError
     ? updateError
     : update
-      ? `Version ${update.version} is ready to install. Ember restarts to finish.`
+      ? `v${update.version} available`
       : updateChecking
-        ? "Checking GitHub for a newer release…"
-        : "You're on the latest version. Ember checks GitHub on its own every few hours.";
+        ? "Checking…"
+        : "Up to date";
 
   return (
     <div className="page page--settings">
-      <header className="pagehead col">
-        <h1 className="h1" data-rise style={{ "--i": 0 } as CSSProperties}>
-          Settings
-        </h1>
-        <p className="sub" data-rise style={{ "--i": 1 } as CSSProperties}>
-          Preferences for your everyday workflow.
-        </p>
+      <header className="pagehead">
+        <h1 className="h1">Settings</h1>
       </header>
 
-      <section className="section wide settings-group">
+      <section className="settings-group">
         <h2 className="h2">General</h2>
         <div className="rows">
-          <div className="srow" data-rise style={{ "--i": 0 } as CSSProperties}>
-            <div>
-              <div className="srow__label">Launch at login</div>
-              <div className="srow__hint">Start Ember when you sign in to Windows.</div>
-            </div>
+          <div className="srow">
+            <span className="srow__label">Launch at login</span>
             <Switch
               label="Launch at login"
               checked={settings.launch_at_login}
               onChange={(next) => apply({ launch_at_login: next })}
             />
           </div>
-          <div className="srow" data-rise style={{ "--i": 1 } as CSSProperties}>
-            <div>
-              <div className="srow__label">Appearance</div>
-              <div className="srow__hint">Follow Windows, or hold it light or dark.</div>
-            </div>
+          <div className="srow">
+            <span className="srow__label">Appearance</span>
             <Segmented
               label="Appearance"
               value={settings.theme}
@@ -139,13 +121,8 @@ export function SettingsPage() {
               onChange={(theme: Theme) => apply({ theme })}
             />
           </div>
-          <div className="srow" data-rise style={{ "--i": 2 } as CSSProperties}>
-            <div>
-              <div className="srow__label">Notifications</div>
-              <div className="srow__hint">
-                A toast and a chime when Ember takes hold and lets go.
-              </div>
-            </div>
+          <div className="srow">
+            <span className="srow__label">Notifications</span>
             <Switch
               label="Notifications"
               checked={!settings.notifications.mute}
@@ -156,16 +133,12 @@ export function SettingsPage() {
           </div>
         </div>
       </section>
-      <section className="section wide settings-group">
+
+      <section className="settings-group">
         <h2 className="h2">Power &amp; display</h2>
         <div className="rows">
-          <div className="srow" data-rise style={{ "--i": 3 } as CSSProperties}>
-            <div>
-              <div className="srow__label">Battery floor</div>
-              <div className="srow__hint">
-                Release the hold below this level.
-              </div>
-            </div>
+          <div className="srow">
+            <span className="srow__label">Battery floor</span>
             <Segmented
               label="Battery floor"
               value={String(settings.battery_floor_percent)}
@@ -173,50 +146,39 @@ export function SettingsPage() {
               onChange={(value: string) => apply({ battery_floor_percent: Number(value) })}
             />
           </div>
-          <div className="srow" data-rise style={{ "--i": 4 } as CSSProperties}>
-            <div>
-              <div className="srow__label">Require charger for lid hold</div>
-              <div className="srow__hint">
-                Only override the lid-close action while plugged in.
-              </div>
-            </div>
+          <div className="srow">
+            <span className="srow__label">Require charger for lid hold</span>
             <Switch
               label="Require charger for lid hold"
               checked={settings.require_charger_for_lid}
               onChange={(next) => apply({ require_charger_for_lid: next })}
             />
           </div>
-          <div className="srow" data-rise style={{ "--i": 5 } as CSSProperties}>
-            <div>
-              <div className="srow__label">Keep the screen on</div>
-              <div className="srow__hint">
-                Keep the display lit during a hold. Otherwise, follow Windows.
-              </div>
-            </div>
+          <div className="srow">
+            <span className="srow__label">Keep screen on for agents</span>
             <Switch
-              label="Keep the screen on"
+              label="Keep screen on for agents"
               checked={settings.keep_display_on}
               onChange={(next) => apply({ keep_display_on: next })}
             />
           </div>
         </div>
+
+        <p className="policy-foot">
+          Manual holds keep the screen on · Battery Saver takes priority · {snapshot.lid.cap_hours}h lid cap
+          {snapshot.capabilities.modern_standby ? " · Modern Standby limits battery holds" : ""}
+        </p>
       </section>
 
-      <div className="safety-note">Battery Saver always takes priority. Closed-lid holds are limited to {snapshot.lid.cap_hours} hours.</div>
-      {snapshot.capabilities.modern_standby && (
-        <div className="safety-note">Windows limits battery-powered holds on this Modern Standby device. Plug in for extended runs.</div>
-      )}
-
-      <section className="section settings-updates" data-reveal>
+      <section className="settings-group">
         <h2 className="h2">Updates</h2>
-        <p className="meta">
-          Ember updates from GitHub. Every download is signature-verified before it runs.
-        </p>
         <div className="rows">
-          <div className="srow" data-rise style={{ "--i": 0 } as CSSProperties}>
-            <div>
-              <div className="srow__label">Ember{version ? ` v${version}` : ""}</div>
-              <div className="srow__hint">{updateHint}</div>
+          <div className="srow">
+            <div className="srow__inline">
+              <span className="srow__label">Ember{version ? ` v${version}` : ""}</span>
+              <span className={`srow__status${updateError ? " is-error" : ""}`}>
+                {updateStatus}
+              </span>
             </div>
             {update ? (
               <Button
@@ -237,25 +199,19 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <details className="section diagnostics">
+      <details className="diagnostics">
         <summary>Recent activity</summary>
-        <p className="meta">The last decisions from the engine, oldest first.</p>
         {log.length > 0 ? (
           <div className="log">
             {log.map((line, index) => (
-              <div
-                className="log__line"
-                key={index}
-                data-rise
-                style={{ "--i": index } as CSSProperties}
-              >
+              <div className="log__line" key={index}>
                 {line.t && <span className="log__t">{line.t}</span>}
                 <span className="log__m">{line.m}</span>
               </div>
             ))}
           </div>
         ) : (
-          <p className="empty-line">Nothing has happened yet.</p>
+          <div className="empty-state">No recent activity</div>
         )}
       </details>
     </div>

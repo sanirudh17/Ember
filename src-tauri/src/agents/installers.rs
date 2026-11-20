@@ -771,11 +771,11 @@ function markWorking(id, cwd, begin=false) {{
 }}
 function markIdle(id,cwd,terminal=true) {{
   if(!id)return;
-  const st=stateFor(id,cwd), wasWorking=st.working;
+  const st=stateFor(id,cwd), wasWorking=st.working, wasActive=st.active;
   st.revision=(st.revision||0)+1;
   if(terminal){{st.active=false;st.executionOwned=false;st.pending.clear();}}
   st.working=false;
-  if(wasWorking || terminal){{st.lastFireAt=Date.now();fire("idle",id,st.cwd);}}
+  if(wasWorking || (terminal && wasActive)){{st.lastFireAt=Date.now();fire("idle",id,st.cwd);}}
 }}
 function markEnd(id,cwd) {{
   if(!id)return;
@@ -877,7 +877,7 @@ async function setup(ctx){{
     if(typeof ctx.session?.get!=="function")return;
     reconciling=true;
     try{{for(const id of owned){{
-      const st=store.sessions.get(id);if(!st)continue;
+      const st=store.sessions.get(id);if(!st || (!st.active && !st.working))continue;
       const revision=st.revision;
       try{{
         const result=await ctx.session.get({{sessionID:id}}),info=result?.data||result;

@@ -75,43 +75,43 @@ const AGENT_DEFS: AgentDef[] = [
   },
   {
     id: "pi",
-    name: "pi",
+    name: "Pi",
     monogram: "PI",
     hue: 140,
-    mode: "process",
-    supported: false,
-    note: "Watched by process activity.",
-    file: null,
+    mode: "hooks",
+    supported: true,
+    note: "TypeScript extension in ~/.pi/agent/extensions/ember-hooks.ts.",
+    file: "~/.pi/agent/extensions/ember-hooks.ts",
   },
   {
     id: "oh-my-pi",
     name: "Oh My Pi",
     monogram: "OP",
     hue: 32,
-    mode: "process",
-    supported: false,
-    note: "Watched by process activity.",
-    file: null,
+    mode: "hooks",
+    supported: true,
+    note: "TypeScript extension in ~/.omp/agent/extensions/ember-hooks.ts.",
+    file: "~/.omp/agent/extensions/ember-hooks.ts",
   },
   {
     id: "antigravity",
-    name: "Antigravity",
+    name: "Antigravity CLI",
     monogram: "AG",
     hue: 200,
-    mode: "process",
-    supported: false,
-    note: "Watched by process activity.",
-    file: null,
+    mode: "hooks",
+    supported: true,
+    note: "Hooks in ~/.gemini/config/hooks.json.",
+    file: "~/.gemini/config/hooks.json",
   },
   {
     id: "cline",
     name: "Cline",
     monogram: "CL",
     hue: 160,
-    mode: "process",
-    supported: false,
-    note: "Watched inside VS Code by process activity.",
-    file: null,
+    mode: "hooks",
+    supported: true,
+    note: "Global PowerShell hooks in Documents/Cline/Hooks.",
+    file: "~/Documents/Cline/Hooks",
   },
 ];
 
@@ -781,7 +781,7 @@ export function createMockBackend() {
         return recentLog();
 
       case "app_version":
-        return "1.0.0";
+        return "1.2.0";
 
       case "check_update": {
         // `?update=1` makes a fresh release appear so the row can be reviewed.
