@@ -36,7 +36,7 @@ Unlike generic keep-awake toggles, Ember pairs native Windows power requests (`S
 - Name: **Ember**.
 - Retain the supplied folded ember artwork (`app-icon.png` and derived icons) throughout.
 - Support System, Light, and Dark themes with strong outer-chrome vs. inner-workspace contrast and Ember's signature warm amber accent (no violet/lavender).
-- Preserve Ember's character: framed rectangular containers for Manual hold and the 4-metric dashboard readout, tactile Solid Glass materiality, and scannable grouped Settings without stripping away helpful context.
+- Preserve Ember's character: neutral graphite dark theme and cool-blue/white light theme with warm orange-amber accents only (no green, violet, or glass effects), framed Manual hold and quiet 4-metric dashboard readout, and open minimal Agents and Settings views.
 
 ## Evidence on Hand
 

@@ -1,5 +1,10 @@
 /**
- * Custom hold dialog: duration in minutes or wall-clock time.
+ * A one-off custom hold: either "for N minutes" or "until HH:MM".
+ *
+ * It follows the same dialog contract as the close confirmation (a scrim
+ * that closes on click, Escape to back out) and the same busy/error shape
+ * as the Agents preview flow: Start is disabled in flight, a rejected call
+ * keeps the dialog open with its message shown inline.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -12,6 +17,7 @@ type Mode = "duration" | "until";
 const MINUTES_KEY = "ember.custom-hold-minutes";
 const FALLBACK_MINUTES = 45;
 
+/** The next quarter hour as "HH:MM", so the time input starts ahead of now. */
 function nextQuarterHour(): string {
   const now = new Date();
   const next = new Date(now);
@@ -26,7 +32,7 @@ function storedMinutes(): string {
     const n = Number(raw);
     if (Number.isFinite(n) && n >= 1 && n <= 1440) return String(Math.floor(n));
   } catch {
-    // Ignore storage access errors.
+    // A missing or blocked storage just means the fallback.
   }
   return String(FALLBACK_MINUTES);
 }
@@ -59,6 +65,7 @@ export function CustomHoldDialog({ open, onClose }: { open: boolean; onClose: ()
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
+    // Focus the active input each time the dialog opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -81,7 +88,7 @@ export function CustomHoldDialog({ open, onClose }: { open: boolean; onClose: ()
           try {
             window.localStorage.setItem(MINUTES_KEY, String(n));
           } catch {
-            // Ignore storage errors.
+            // Holding matters; remembering the number does not.
           }
           onClose();
         })
@@ -90,7 +97,7 @@ export function CustomHoldDialog({ open, onClose }: { open: boolean; onClose: ()
     } else {
       const [h, m] = time.split(":").map(Number);
       if (!Number.isFinite(h) || !Number.isFinite(m)) {
-        setError("Pick a time.");
+        setError("Pick a time first.");
         setBusy(false);
         return;
       }
@@ -114,54 +121,51 @@ export function CustomHoldDialog({ open, onClose }: { open: boolean; onClose: ()
         <h2 className="dialog__title" id="custom-hold-title">
           Custom hold
         </h2>
+        <p className="dialog__text">A one-off hold; agents still hold on their own.</p>
         <Segmented<Mode>
           label="Custom hold mode"
           value={mode}
           options={[
-            { value: "duration", label: "Duration" },
-            { value: "until", label: "Until time" },
+            { value: "duration", label: "For a while" },
+            { value: "until", label: "Until a time" },
           ]}
           onChange={(next) => {
             setMode(next);
             setError(null);
-            requestAnimationFrame(() => {
-              (next === "duration" ? minutesRef.current : timeRef.current)?.focus();
-            });
+            (next === "duration" ? minutesRef.current : timeRef.current)?.focus();
           }}
         />
-        <div className="dialog__field">
-          {mode === "duration" ? (
-            <>
-              <label htmlFor="custom-hold-minutes">Minutes</label>
-              <input
-                id="custom-hold-minutes"
-                ref={minutesRef}
-                className="input"
-                type="number"
-                min={1}
-                max={1440}
-                value={minutes}
-                disabled={busy}
-                onChange={(event) => setMinutes(event.target.value)}
-              />
-            </>
-          ) : (
-            <>
-              <label htmlFor="custom-hold-time">Until</label>
-              <input
-                id="custom-hold-time"
-                ref={timeRef}
-                className="input"
-                type="time"
-                value={time}
-                disabled={busy}
-                onChange={(event) => setTime(event.target.value)}
-              />
-            </>
-          )}
-        </div>
+        {mode === "duration" ? (
+          <p className="dialog__text">
+            <label htmlFor="custom-hold-minutes">Minutes </label>
+            <input
+              id="custom-hold-minutes"
+              ref={minutesRef}
+              className="input"
+              type="number"
+              min={1}
+              max={1440}
+              value={minutes}
+              disabled={busy}
+              onChange={(event) => setMinutes(event.target.value)}
+            />
+          </p>
+        ) : (
+          <p className="dialog__text">
+            <label htmlFor="custom-hold-time">Hold until </label>
+            <input
+              id="custom-hold-time"
+              ref={timeRef}
+              className="input"
+              type="time"
+              value={time}
+              disabled={busy}
+              onChange={(event) => setTime(event.target.value)}
+            />
+          </p>
+        )}
         {error && (
-          <p className="inline-error" role="alert">
+          <p className="dialog__text" role="alert">
             {error}
           </p>
         )}
