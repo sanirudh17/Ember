@@ -255,7 +255,10 @@ mod tests {
 
         handle_exit(&api, 4242, &path.display().to_string());
 
-        assert_eq!(api.writes.lock().unwrap().as_slice(), ["ac=6", "dc=5"]);
+        assert_eq!(
+            api.writes.lock().unwrap().as_slice(),
+            ["ac=6", "dc=5", "active"]
+        );
         assert!(
             lid::read_state_at(&path).is_none(),
             "a successful restore removes the undo record"

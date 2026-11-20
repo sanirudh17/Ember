@@ -104,6 +104,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 if setting.power_setting == GUID_LIDSWITCH_STATE_CHANGE {
                     let closed = setting.data[0] == 0;
                     LID_CLOSED.store(if closed { 1 } else { 2 }, Ordering::Relaxed);
+                    if closed {
+                        POWER_REASSERT.store(true, Ordering::Relaxed);
+                    }
                 } else if setting.power_setting == GUID_ACDC_POWER_SOURCE {
                     POWER_REASSERT.store(true, Ordering::Relaxed);
                 }

@@ -371,18 +371,17 @@ pub fn engage_at(api: &dyn PowerApi, state_path: &Path) -> Result<LidHold, Strin
     Ok(hold)
 }
 
-/// Put the saved lid action back, into the scheme that was recorded at engage
-/// time. The scheme is deliberately *not* re-activated: if the user switched
-/// plans while Ember held the lid, their current plan was never modified and
-/// must stay selected.
+/// Put the saved lid action back into the scheme that was recorded at engage
+/// time. Re-activates that scheme *only* if it is still the active power plan,
+/// so Windows flushes the restored lid action back into the live kernel policy
+/// without hijacking a plan the user switched to mid-hold.
 pub fn restore(api: &dyn PowerApi, hold: &LidHold) -> Result<(), String> {
     restore_at(api, hold, &paths::session_state_path())
 }
 
 /// [`restore`] against an explicit state file. The undo record is deleted only
-/// after every write succeeded; on failure it stays behind so the watchdog or
-/// the next launch can retry. Deleting it anyway used to lose the user's
-/// original lid action permanently.
+/// after every write (and live policy refresh, when still active) succeeded; on
+/// failure it stays behind so the watchdog or the next launch can retry.
 pub fn restore_at(api: &dyn PowerApi, hold: &LidHold, state_path: &Path) -> Result<(), String> {
     let scheme = hold.scheme.to_guid();
     let mut first_error: Option<String> = None;
@@ -393,6 +392,12 @@ pub fn restore_at(api: &dyn PowerApi, hold: &LidHold, state_path: &Path) -> Resu
         if let Err(e) = step {
             first_error.get_or_insert(e);
         }
+    }
+    if first_error.is_none()
+        && api.active_scheme().ok() == Some(scheme)
+        && let Err(e) = api.set_active(&scheme)
+    {
+        first_error = Some(e);
     }
     match first_error {
         None => {
@@ -516,7 +521,26 @@ mod tests {
         assert_eq!(api.dc.load(Ordering::SeqCst), 2);
         assert_eq!(
             api.log.lock().unwrap().as_slice(),
-            ["ac=0", "dc=0", "active", "ac=3", "dc=2"]
+            ["ac=0", "dc=0", "active", "ac=3", "dc=2", "active"]
+        );
+    }
+
+    #[test]
+    fn restore_does_not_reactivate_when_user_switched_plans() {
+        let mut api = FakePower::new(0x1111, 1, 1);
+        let path = state_path("switched_plan");
+        let hold = engage_at(&api, &path).expect("engage");
+        // User switches to a different Windows power plan mid-hold.
+        api.scheme = gid(0x2222);
+        api.log.lock().unwrap().clear();
+
+        restore_at(&api, &hold, &path).expect("restore");
+        assert_eq!(api.ac.load(Ordering::SeqCst), 1);
+        assert_eq!(api.dc.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            api.log.lock().unwrap().as_slice(),
+            ["ac=1", "dc=1"],
+            "must not hijack the user's newly selected plan"
         );
     }
 

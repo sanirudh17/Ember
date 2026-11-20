@@ -1,13 +1,13 @@
 /**
  * A one-off custom hold: either "for N minutes" or "until HH:MM".
  *
- * It follows the same dialog contract as the close confirmation (a scrim
- * that closes on click, Escape to back out) and the same busy/error shape
- * as the Agents preview flow: Start is disabled in flight, a rejected call
- * keeps the dialog open with its message shown inline.
+ * Uses a bespoke Ember time control (direct HH:MM entry plus a clean Ember
+ * hour/minute popover) so Windows never pops up the native browser time
+ * spinner, and keeps generous spacing between labels, fields, and units.
  */
 
 import { useEffect, useRef, useState } from "react";
+import { Clock, Minus, Plus } from "lucide-react";
 
 import { api } from "../lib/api";
 import { Button, Segmented } from "./ui";
@@ -16,14 +16,17 @@ type Mode = "duration" | "until";
 
 const MINUTES_KEY = "ember.custom-hold-minutes";
 const FALLBACK_MINUTES = 45;
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const MINUTE_STEPS = Array.from({ length: 12 }, (_, i) => i * 5);
 
-/** The next quarter hour as "HH:MM", so the time input starts ahead of now. */
-function nextQuarterHour(): string {
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** The next quarter hour as [hour, minute], so the time picker starts ahead of now. */
+function nextQuarterHourParts(): [string, string] {
   const now = new Date();
   const next = new Date(now);
   next.setMinutes(Math.ceil((now.getMinutes() + 1) / 15) * 15, 0, 0);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(next.getHours())}:${pad(next.getMinutes())}`;
+  return [pad2(next.getHours()), pad2(next.getMinutes())];
 }
 
 function storedMinutes(): string {
@@ -40,14 +43,22 @@ function storedMinutes(): string {
 export function CustomHoldDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [mode, setMode] = useState<Mode>("duration");
   const [minutes, setMinutes] = useState<string>(storedMinutes);
-  const [time, setTime] = useState<string>(nextQuarterHour);
+  const [[initH, initM]] = useState(nextQuarterHourParts);
+  const [hour, setHour] = useState<string>(initH);
+  const [minute, setMinute] = useState<string>(initM);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const minutesRef = useRef<HTMLInputElement>(null);
-  const timeRef = useRef<HTMLInputElement>(null);
+  const hourRef = useRef<HTMLInputElement>(null);
+  const minuteRef = useRef<HTMLInputElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const activeHourRef = useRef<HTMLButtonElement>(null);
+  const activeMinuteRef = useRef<HTMLButtonElement>(null);
 
   const close = () => {
     if (busy) return;
+    setPickerOpen(false);
     onClose();
   };
 
@@ -55,21 +66,76 @@ export function CustomHoldDialog({ open, onClose }: { open: boolean; onClose: ()
     if (!open) return;
     setError(null);
     setBusy(false);
-    const target = mode === "duration" ? minutesRef.current : timeRef.current;
-    target?.focus();
+    setPickerOpen(false);
+    const [h, m] = nextQuarterHourParts();
+    setHour(h);
+    setMinute(m);
+    requestAnimationFrame(() => {
+      const target = mode === "duration" ? minutesRef.current : hourRef.current;
+      target?.focus();
+    });
+    // Reset defaults each time the dialog opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        close();
+        if (pickerOpen) {
+          setPickerOpen(false);
+        } else if (!busy) {
+          onClose();
+        }
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-    // Focus the active input each time the dialog opens.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, pickerOpen, busy, onClose]);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    activeHourRef.current?.scrollIntoView({ block: "center" });
+    activeMinuteRef.current?.scrollIntoView({ block: "center" });
+    const onPointerDown = (event: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [pickerOpen]);
 
   if (!open) return null;
+
+  const stepMinutes = (delta: number) => {
+    const current = Math.floor(Number(minutes));
+    const base = Number.isFinite(current) && current >= 1 ? current : FALLBACK_MINUTES;
+    const next = Math.min(1440, Math.max(5, Math.round((base + delta) / 5) * 5));
+    setMinutes(String(next));
+    setError(null);
+  };
+
+  const parsedHour = () => {
+    const h = Number(hour);
+    return Number.isInteger(h) && h >= 0 && h <= 23 ? h : null;
+  };
+
+  const parsedMinute = () => {
+    const m = Number(minute);
+    return Number.isInteger(m) && m >= 0 && m <= 59 ? m : null;
+  };
+
+  const normalizeHour = () => {
+    const h = parsedHour();
+    if (h !== null) setHour(pad2(h));
+  };
+
+  const normalizeMinute = () => {
+    const m = parsedMinute();
+    if (m !== null) setMinute(pad2(m));
+  };
 
   const start = () => {
     if (busy) return;
@@ -95,9 +161,10 @@ export function CustomHoldDialog({ open, onClose }: { open: boolean; onClose: ()
         .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
         .finally(() => setBusy(false));
     } else {
-      const [h, m] = time.split(":").map(Number);
-      if (!Number.isFinite(h) || !Number.isFinite(m)) {
-        setError("Pick a time first.");
+      const h = parsedHour();
+      const m = parsedMinute();
+      if (h === null || m === null) {
+        setError("Enter a valid 24-hour time (00:00 – 23:59).");
         setBusy(false);
         return;
       }
@@ -109,10 +176,13 @@ export function CustomHoldDialog({ open, onClose }: { open: boolean; onClose: ()
     }
   };
 
+  const selectedH = parsedHour();
+  const selectedM = parsedMinute();
+
   return (
     <div className="scrim" role="presentation" onClick={close}>
       <div
-        className="dialog"
+        className="dialog dialog--custom"
         role="dialog"
         aria-modal="true"
         aria-labelledby="custom-hold-title"
@@ -122,61 +192,201 @@ export function CustomHoldDialog({ open, onClose }: { open: boolean; onClose: ()
           Custom hold
         </h2>
         <p className="dialog__text">A one-off hold; agents still hold on their own.</p>
-        <Segmented<Mode>
-          label="Custom hold mode"
-          value={mode}
-          options={[
-            { value: "duration", label: "For a while" },
-            { value: "until", label: "Until a time" },
-          ]}
-          onChange={(next) => {
-            setMode(next);
-            setError(null);
-            (next === "duration" ? minutesRef.current : timeRef.current)?.focus();
-          }}
-        />
-        {mode === "duration" ? (
-          <p className="dialog__text">
-            <label htmlFor="custom-hold-minutes">Minutes </label>
-            <input
-              id="custom-hold-minutes"
-              ref={minutesRef}
-              className="input"
-              type="number"
-              min={1}
-              max={1440}
-              value={minutes}
-              disabled={busy}
-              onChange={(event) => setMinutes(event.target.value)}
-            />
-          </p>
-        ) : (
-          <p className="dialog__text">
-            <label htmlFor="custom-hold-time">Hold until </label>
-            <input
-              id="custom-hold-time"
-              ref={timeRef}
-              className="input"
-              type="time"
-              value={time}
-              disabled={busy}
-              onChange={(event) => setTime(event.target.value)}
-            />
-          </p>
-        )}
-        {error && (
-          <p className="dialog__text" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="dialog__actions">
-          <Button variant="quiet" disabled={busy} onClick={close}>
-            Cancel
-          </Button>
-          <Button variant="primary" disabled={busy} onClick={start}>
-            {busy ? "Starting…" : "Start"}
-          </Button>
+
+        <div className="custom-dialog__mode">
+          <Segmented<Mode>
+            label="Custom hold mode"
+            value={mode}
+            options={[
+              { value: "duration", label: "For a while" },
+              { value: "until", label: "Until a time" },
+            ]}
+            onChange={(next) => {
+              setMode(next);
+              setPickerOpen(false);
+              setError(null);
+              requestAnimationFrame(() => {
+                (next === "duration" ? minutesRef.current : hourRef.current)?.focus();
+              });
+            }}
+          />
         </div>
+
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            start();
+          }}
+        >
+          {mode === "duration" ? (
+            <div className="custom-field">
+              <label className="custom-field__label" htmlFor="custom-hold-minutes">
+                Duration
+              </label>
+              <div className="custom-duration">
+                <button
+                  type="button"
+                  className="custom-step"
+                  aria-label="Decrease by 15 minutes"
+                  disabled={busy}
+                  onClick={() => stepMinutes(-15)}
+                >
+                  <Minus size={13} />
+                </button>
+                <input
+                  id="custom-hold-minutes"
+                  ref={minutesRef}
+                  className="input custom-duration__input"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={minutes}
+                  disabled={busy}
+                  onChange={(event) => {
+                    const digits = event.target.value.replace(/\D/g, "").slice(0, 4);
+                    setMinutes(digits);
+                    setError(null);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="custom-step"
+                  aria-label="Increase by 15 minutes"
+                  disabled={busy}
+                  onClick={() => stepMinutes(15)}
+                >
+                  <Plus size={13} />
+                </button>
+                <span className="custom-field__unit">minutes</span>
+              </div>
+            </div>
+          ) : (
+            <div className="custom-field" ref={pickerRef}>
+              <label className="custom-field__label" htmlFor="custom-hold-hour">
+                Hold until
+              </label>
+              <div className="custom-time">
+                <div className={`custom-time__box${pickerOpen ? " is-open" : ""}`}>
+                  <input
+                    id="custom-hold-hour"
+                    ref={hourRef}
+                    className="custom-time__seg"
+                    type="text"
+                    inputMode="numeric"
+                    aria-label="Hour"
+                    maxLength={2}
+                    value={hour}
+                    disabled={busy}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onBlur={normalizeHour}
+                    onChange={(event) => {
+                      const digits = event.target.value.replace(/\D/g, "").slice(0, 2);
+                      setHour(digits);
+                      setError(null);
+                      if (digits.length === 2) minuteRef.current?.focus();
+                    }}
+                  />
+                  <span className="custom-time__colon" aria-hidden="true">
+                    :
+                  </span>
+                  <input
+                    id="custom-hold-minute"
+                    ref={minuteRef}
+                    className="custom-time__seg"
+                    type="text"
+                    inputMode="numeric"
+                    aria-label="Minute"
+                    maxLength={2}
+                    value={minute}
+                    disabled={busy}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onBlur={normalizeMinute}
+                    onChange={(event) => {
+                      const digits = event.target.value.replace(/\D/g, "").slice(0, 2);
+                      setMinute(digits);
+                      setError(null);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="custom-time__toggle"
+                    aria-label="Choose time from list"
+                    aria-expanded={pickerOpen}
+                    disabled={busy}
+                    onClick={() => setPickerOpen((v) => !v)}
+                  >
+                    <Clock size={14} />
+                  </button>
+                </div>
+
+                {pickerOpen && (
+                  <div className="time-popover" role="listbox" aria-label="Time picker">
+                    <div className="time-popover__col">
+                      <span className="time-popover__head">Hour</span>
+                      <div className="time-popover__list">
+                        {HOURS.map((h) => {
+                          const active = selectedH === h;
+                          return (
+                            <button
+                              key={h}
+                              ref={active ? activeHourRef : undefined}
+                              type="button"
+                              className={`time-popover__item${active ? " is-selected" : ""}`}
+                              onClick={() => {
+                                setHour(pad2(h));
+                                setError(null);
+                              }}
+                            >
+                              {pad2(h)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="time-popover__col">
+                      <span className="time-popover__head">Min</span>
+                      <div className="time-popover__list">
+                        {MINUTE_STEPS.map((m) => {
+                          const active = selectedM === m;
+                          return (
+                            <button
+                              key={m}
+                              ref={active ? activeMinuteRef : undefined}
+                              type="button"
+                              className={`time-popover__item${active ? " is-selected" : ""}`}
+                              onClick={() => {
+                                setMinute(pad2(m));
+                                setError(null);
+                                setPickerOpen(false);
+                              }}
+                            >
+                              {pad2(m)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <p className="custom-dialog__error" role="alert">
+              {error}
+            </p>
+          )}
+
+          <div className="dialog__actions">
+            <Button variant="quiet" disabled={busy} onClick={close}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" disabled={busy}>
+              {busy ? "Starting…" : "Start"}
+            </Button>
+          </div>
+        </form>
       </div>
     </div>
   );

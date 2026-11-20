@@ -17,6 +17,7 @@ type ButtonVariant = "primary" | "quiet" | "ghost";
 export function Button({
   variant = "quiet",
   size,
+  type = "button",
   onClick,
   disabled,
   title,
@@ -24,6 +25,7 @@ export function Button({
 }: {
   variant?: ButtonVariant;
   size?: "sm";
+  type?: "button" | "submit";
   onClick?: () => void;
   disabled?: boolean;
   title?: string;
@@ -33,7 +35,7 @@ export function Button({
     .filter(Boolean)
     .join(" ");
   return (
-    <button type="button" className={cls} onClick={onClick} disabled={disabled} title={title}>
+    <button type={type} className={cls} onClick={onClick} disabled={disabled} title={title}>
       <span className="control-label">{children}</span>
     </button>
   );

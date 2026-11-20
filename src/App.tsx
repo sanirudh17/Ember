@@ -47,6 +47,27 @@ export function App() {
     return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); };
   }, [ready, loading]);
 
+  // Auto-hide scrollbars cleanly after 5 seconds of no scrolling.
+  useEffect(() => {
+    const timers = new WeakMap<Element, number>();
+    const onScroll = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      target.classList.add("is-scrolling");
+      const prev = timers.get(target);
+      if (prev !== undefined) window.clearTimeout(prev);
+      const id = window.setTimeout(() => {
+        target.classList.remove("is-scrolling");
+        timers.delete(target);
+      }, 5000);
+      timers.set(target, id);
+    };
+    document.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("scroll", onScroll, true);
+    };
+  }, []);
+
   // Keep the URL in step so a reload lands on the same screen.
   useEffect(() => {
     const url = new URL(window.location.href);

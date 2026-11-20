@@ -50,6 +50,9 @@ pub const VISIBILITY_HOLD_DELAY: Duration = Duration::from_secs(1);
 /// re-engaging) stays visible but silent. Manual holds and battery releases
 /// always notify.
 pub const NOTIFY_EPISODE_DEBOUNCE: Duration = Duration::from_secs(60);
+/// How long to wait before retrying `lid::engage` after a Win32 failure so a
+/// locked power policy does not thrash four times per second.
+const LID_RETRY_BACKOFF: Duration = Duration::from_secs(30);
 /// Authoritative completion releases on the next engine tick. Approximate
 /// process activity already has its own bounded hysteresis in the registry.
 pub const RELEASE_FLOOR: Duration = Duration::ZERO;
@@ -105,6 +108,7 @@ pub struct Engine {
     pub lid_engaged_unix: Option<u64>,
     pub lid_cap_tripped: bool,
     pub lid_error: Option<String>,
+    lid_retry_after: Option<Instant>,
     pub blocker_error: Option<String>,
     /// The crash watchdog is spawned at most once per app run, the first time
     /// the lid override goes up. It outlives us and restores from the session
@@ -177,6 +181,7 @@ impl Engine {
             lid_engaged_unix: None,
             lid_cap_tripped: false,
             lid_error: None,
+            lid_retry_after: None,
             blocker_error: None,
             lid_watchdog_spawned: false,
             engaged_since_unix: None,
@@ -720,12 +725,14 @@ impl Engine {
                 && !lid_cap_exceeded
                 && charger_ok
                 && self.lid_hold.is_none()
+                && self.lid_retry_after.is_none_or(|t| now >= t)
             {
                 match lid::engage(&RealPowerApi) {
                     Ok(hold) => {
                         self.lid_hold = Some(hold);
                         self.lid_engaged_unix = Some(now_u);
                         self.lid_error = None;
+                        self.lid_retry_after = None;
                         // One watchdog per app run: it blocks on our PID and
                         // restores from the session state file if we die while
                         // the override is up. Normal exits delete that file
@@ -746,14 +753,17 @@ impl Engine {
                     }
                     Err(e) => {
                         self.lid_error = Some(e);
-                        // Do not thrash: back off for a whole cap period.
+                        // Back off before retrying so a locked power policy never
+                        // thrashes the Win32 power API four times a second.
                         self.lid_engaged_unix = None;
+                        self.lid_retry_after = Some(now + LID_RETRY_BACKOFF);
                     }
                 }
             }
         } else {
             self.blocker.release();
             released_since_unix = self.engaged_since_unix.take();
+            self.lid_retry_after = None;
             if self.lid_hold.is_some() {
                 self.release_lid_now();
             }
