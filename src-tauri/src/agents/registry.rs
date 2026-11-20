@@ -101,6 +101,13 @@ pub struct Session {
     pub session_id: String,
     pub folder: String,
     pub pid: Option<u32>,
+    /// True once `pid` has been observed live in a process-table sample. Once
+    /// confirmed live, disappearing from a later sample proves the process
+    /// exited/was killed and allows immediate removal without waiting `PID_GRACE`.
+    pub pid_seen_alive: bool,
+    /// Process creation timestamp recorded when `pid` was observed live, used
+    /// to catch immediate Windows PID reuse after an abrupt kill.
+    pub pid_birth: Option<u64>,
     pub state: SessionState,
     pub state_since: Instant,
     pub last_event: Instant,
@@ -293,6 +300,8 @@ impl Registry {
                     .map(folder_name)
                     .unwrap_or_else(|| "unknown".to_string()),
                 pid: msg.pid,
+                pid_seen_alive: false,
+                pid_birth: None,
                 state: SessionState::Idle,
                 state_since: now,
                 last_event: now,
@@ -308,8 +317,12 @@ impl Registry {
         {
             entry.folder = folder_name(cwd);
         }
-        if let Some(pid) = msg.pid {
+        if let Some(pid) = msg.pid
+            && entry.pid != Some(pid)
+        {
             entry.pid = Some(pid);
+            entry.pid_seen_alive = false;
+            entry.pid_birth = None;
         }
 
         let next_state = match msg.event {
@@ -466,6 +479,8 @@ impl Registry {
                             session_id,
                             folder: det.folder.clone(),
                             pid: Some(det.pid),
+                            pid_seen_alive: true,
+                            pid_birth: None,
                             state,
                             state_since: now,
                             last_event: now,
@@ -495,11 +510,44 @@ impl Registry {
 
     /// Demote silent working sessions, drop dead PIDs.
     pub fn tick(&mut self, stale_timeout: Duration, alive: &HashSet<u32>, now: Instant) {
-        for session in self.sessions.values_mut() {
+        let empty_ids = HashMap::new();
+        self.tick_with_processes(stale_timeout, alive, &empty_ids, None, now);
+    }
+
+    /// Demote silent working sessions and drop dead, reused, or orphaned
+    /// sessions. Returns the pruned `(agent, session_id, pid)` tuples so
+    /// callers can also clean up persisted activity-cache files.
+    pub fn tick_with_processes(
+        &mut self,
+        stale_timeout: Duration,
+        alive: &HashSet<u32>,
+        identities: &HashMap<u32, u64>,
+        live_agents: Option<&HashSet<AgentId>>,
+        now: Instant,
+    ) -> Vec<(AgentId, String, Option<u32>)> {
+        let mut reused_keys: HashSet<(AgentId, String)> = HashSet::new();
+        for (key, session) in self.sessions.iter_mut() {
+            let mut pid_alive = false;
+            if let Some(p) = session.pid
+                && alive.contains(&p)
+            {
+                let current_birth = identities.get(&p).copied();
+                if let (Some(recorded), Some(current)) = (session.pid_birth, current_birth)
+                    && recorded != current
+                {
+                    // Windows reused the killed PID for a brand-new process.
+                    reused_keys.insert(key.clone());
+                } else {
+                    pid_alive = true;
+                    session.pid_seen_alive = true;
+                    if session.pid_birth.is_none() {
+                        session.pid_birth = current_birth;
+                    }
+                }
+            }
             // A live agent process survives ordinary reasoning silence past
             // `stale_timeout`, up to `LIVE_PID_SILENCE_CAP` so a missed `Stop`
             // hook (e.g. user interrupt/abort) cannot hold the PC awake forever.
-            let pid_alive = session.pid.map(|p| alive.contains(&p)).unwrap_or(false);
             let limit = if pid_alive {
                 stale_timeout.max(LIVE_PID_SILENCE_CAP)
             } else {
@@ -513,26 +561,41 @@ impl Registry {
                 session.stale = true;
             }
         }
-        // Sessions whose owning process is gone are removed outright — but
-        // only after [`PID_GRACE`]: the process table is sampled every couple
-        // of seconds, so "not in the sample" is not yet "dead" for a pid that
-        // was just born (see the fresh-hook-pid regression test below).
-        let dead: Vec<(AgentId, String)> = self
+        // Drop dead sessions:
+        // 1. A PID confirmed alive earlier that vanished (or was reused by a
+        //    new process) is dropped immediately — no 6s delay after an abrupt
+        //    Task Manager or shell kill.
+        // 2. A PID never yet seen in a process sample still gets `PID_GRACE` so
+        //    a brand-new hook landing between polls is never dropped prematurely.
+        // 3. A PID-less hook session whose agent has zero live processes on the
+        //    machine is pruned after `PID_GRACE` so orphaned sessions cannot
+        //    linger as Working for 20 minutes.
+        let dead: Vec<(AgentId, String, Option<u32>)> = self
             .sessions
-            .values()
-            .filter(|s| {
-                s.pid
-                    .map(|p| !alive.contains(&p) && now.duration_since(s.last_event) >= PID_GRACE)
-                    .unwrap_or(false)
+            .iter()
+            .filter(|(key, s)| {
+                if reused_keys.contains(*key) {
+                    return true;
+                }
+                match s.pid {
+                    Some(p) => {
+                        !alive.contains(&p)
+                            && (s.pid_seen_alive || now.duration_since(s.last_event) >= PID_GRACE)
+                    }
+                    None => live_agents.is_some_and(|agents| {
+                        !agents.contains(&s.agent) && now.duration_since(s.last_event) >= PID_GRACE
+                    }),
+                }
             })
-            .map(|s| (s.agent, s.session_id.clone()))
+            .map(|((agent, sid), s)| (*agent, sid.clone(), s.pid))
             .collect();
-        for key in dead {
-            self.sessions.remove(&key);
+        for (agent, sid, _) in &dead {
+            self.sessions.remove(&(*agent, sid.clone()));
         }
         self.waiting.retain(|key| self.sessions.contains_key(key));
         self.hook_owners
             .retain(|(_, pid), seen| alive.contains(pid) || now.duration_since(*seen) < PID_GRACE);
+        dead
     }
 
     fn enforce_cap(&mut self, agent: AgentId) {
@@ -1171,6 +1234,8 @@ mod tests {
             session_id: "pid:555".into(),
             folder: "hooked".into(),
             pid: Some(555),
+            pid_seen_alive: true,
+            pid_birth: None,
             state: SessionState::Working,
             state_since: t0,
             last_event: t0,
@@ -1438,5 +1503,101 @@ mod tests {
         }];
         r.on_process(&dets2, t0);
         assert_eq!(r.get(AgentId::OpenCode, "ses_2").unwrap().folder, "my-repo");
+    }
+
+    #[test]
+    fn abruptly_killed_process_drops_working_session_immediately() {
+        let mut r = Registry::new();
+        let t0 = Instant::now();
+        r.on_hook(msg(AgentId::OpenCode, HookEvent::Working, "killed", Some(7001)), t0);
+
+        // First poll observes PID 7001 alive with birth timestamp 1000.
+        let alive = HashSet::from([7001]);
+        let ids = HashMap::from([(7001, 1000u64)]);
+        let live_agents = HashSet::from([AgentId::OpenCode]);
+        let pruned = r.tick_with_processes(
+            Duration::from_secs(1200),
+            &alive,
+            &ids,
+            Some(&live_agents),
+            t0 + Duration::from_secs(1),
+        );
+        assert!(pruned.is_empty());
+        assert_eq!(r.working_count(AgentId::OpenCode), 1);
+
+        // 1 second later, Task Manager / shell kills PID 7001 — must clear
+        // immediately on the very next poll without waiting PID_GRACE (6s).
+        let pruned = r.tick_with_processes(
+            Duration::from_secs(1200),
+            &HashSet::new(),
+            &HashMap::new(),
+            Some(&HashSet::new()),
+            t0 + Duration::from_secs(2),
+        );
+        assert_eq!(
+            pruned,
+            vec![(AgentId::OpenCode, "killed".to_string(), Some(7001))]
+        );
+        assert_eq!(r.working_count(AgentId::OpenCode), 0);
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn reused_pid_after_abrupt_kill_drops_stale_working_session() {
+        let mut r = Registry::new();
+        let t0 = Instant::now();
+        r.on_hook(msg(AgentId::OpenCode, HookEvent::Working, "reused", Some(8002)), t0);
+
+        let alive = HashSet::from([8002]);
+        let ids_old = HashMap::from([(8002, 1000u64)]);
+        r.tick_with_processes(
+            Duration::from_secs(1200),
+            &alive,
+            &ids_old,
+            None,
+            t0 + Duration::from_secs(1),
+        );
+        assert_eq!(r.working_count(AgentId::OpenCode), 1);
+
+        // PID 8002 is still in `alive`, but now belongs to a newer process (birth 1005).
+        let ids_new = HashMap::from([(8002, 1005u64)]);
+        let pruned = r.tick_with_processes(
+            Duration::from_secs(1200),
+            &alive,
+            &ids_new,
+            None,
+            t0 + Duration::from_secs(2),
+        );
+        assert_eq!(pruned.len(), 1);
+        assert_eq!(r.working_count(AgentId::OpenCode), 0);
+    }
+
+    #[test]
+    fn pidless_working_session_clears_when_no_agent_process_is_running() {
+        let mut r = Registry::new();
+        let t0 = Instant::now();
+        r.on_hook(msg(AgentId::Codex, HookEvent::Working, "orphan", None), t0);
+
+        // While a Codex process is alive, the PID-less hook stays Working.
+        let with_codex = HashSet::from([AgentId::Codex]);
+        r.tick_with_processes(
+            Duration::from_secs(1200),
+            &HashSet::new(),
+            &HashMap::new(),
+            Some(&with_codex),
+            t0 + Duration::from_secs(10),
+        );
+        assert_eq!(r.working_count(AgentId::Codex), 1);
+
+        // Once zero Codex processes exist past PID_GRACE, it is pruned cleanly.
+        let pruned = r.tick_with_processes(
+            Duration::from_secs(1200),
+            &HashSet::new(),
+            &HashMap::new(),
+            Some(&HashSet::new()),
+            t0 + Duration::from_secs(12),
+        );
+        assert_eq!(pruned.len(), 1);
+        assert_eq!(r.working_count(AgentId::Codex), 0);
     }
 }

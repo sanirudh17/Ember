@@ -41,18 +41,20 @@ function stateCopy(s: Snapshot): StateCopy {
     return {
       key: "blocked-battery",
       lines: ["Waiting", "for power."],
-      sub:
-        s.blocker_detail ??
-        "The battery is low, so Ember let go to protect your session.",
+      sub: s.manual.active
+        ? `Manual hold is paused below ${s.settings.battery_floor_percent}% battery. Plug in to resume it.`
+        : (s.blocker_detail ??
+          "The battery is low, so Ember let go to protect your session."),
     };
   }
   if (s.blocker === "battery_saver") {
     return {
       key: "blocked-saver",
       lines: ["Battery saver", "is on."],
-      sub:
-        s.blocker_detail ??
-        "Windows asked for power saving, so Ember let go until it is off again.",
+      sub: s.manual.active
+        ? "Manual hold is paused while Windows battery saver is on. It will resume automatically when battery saver turns off."
+        : (s.blocker_detail ??
+          "Windows battery saver is active, so Ember released the hold."),
     };
   }
   if (s.blocker === "lid_cap") {
@@ -133,6 +135,8 @@ export function HomePage({ onViewAgents }: { onViewAgents: () => void }) {
   const copy = stateCopy(snapshot);
   const rows = readings(snapshot);
   const lidUsable = snapshot.lid.present && snapshot.capabilities.lid_proof_available;
+  const batteryBlocked = snapshot.blocker === "battery_saver" || snapshot.blocker === "battery_low";
+  const manualPaused = snapshot.manual.active && batteryBlocked;
   const sessions = snapshot.sessions.slice().sort((a,b) => Number(b.state === "working") - Number(a.state === "working") || b.working_for_secs-a.working_for_secs);
 
   return <div className="page page--awake awake-workspace">
@@ -146,9 +150,11 @@ export function HomePage({ onViewAgents }: { onViewAgents: () => void }) {
 
       </div>
       <div className="hold-toolbar">
-        <span className="hold-toolbar__label">Manual hold</span>
+        <span className="hold-toolbar__label">{manualPaused ? "Manual hold · paused" : "Manual hold"}</span>
         <div className="actions">
-          {snapshot.manual.active ? <>
+          {manualPaused ? <>
+            <Button disabled={busy} onClick={() => run(() => api.stopManual())}>Cancel hold</Button>
+          </> : snapshot.manual.active ? <>
             <Button variant="primary" disabled={busy} onClick={() => run(() => api.stopManual())}>End hold</Button>
             <Button disabled={busy} onClick={() => run(() => api.extendManual(1800))}>+30m</Button>
             <Button disabled={busy} onClick={() => run(() => api.extendManual(3600))}>+1h</Button>
@@ -164,10 +170,26 @@ export function HomePage({ onViewAgents }: { onViewAgents: () => void }) {
       {actionError && <p className="meta" role="alert">{actionError}</p>}
     </section>
     <section className="awake-summary" aria-label="Hold and device status">
-      {rows.map((row,index) => <div className="summary-reading" key={row.k}>
-        <span>{index === 0 && snapshot.manual.active && !snapshot.manual.unlimited ? "Remaining" : row.k}</span>
-        <strong>{index === 0 && snapshot.manual.active && !snapshot.manual.unlimited ? snapshot.manual.countdown : row.v}</strong>
-      </div>)}
+      {rows.map((row,index) => {
+        let label = row.k;
+        let value = row.v;
+        if (index === 0) {
+          if (manualPaused) {
+            label = "Manual hold";
+            value = snapshot.manual.unlimited ? "Paused" : `Paused · ${snapshot.manual.countdown}`;
+          } else if (batteryBlocked) {
+            label = "Held for";
+            value = "Paused";
+          } else if (snapshot.manual.active && !snapshot.manual.unlimited) {
+            label = "Remaining";
+            value = snapshot.manual.countdown;
+          }
+        }
+        return <div className="summary-reading" key={row.k}>
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>;
+      })}
     </section>
     </div>
 

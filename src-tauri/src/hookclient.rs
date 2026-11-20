@@ -59,14 +59,21 @@ const LAUNCHERS: &[&str] = &[
     "psmux.exe",
 ];
 
-/// Runtimes that host a JS/TS coding agent. Used only as a fallback when no
+/// Runtimes that host a JS/TS/Python CLI agent. Used only as a fallback when no
 /// ancestor matches the agent's own executable names.
-const GENERIC_HOSTS: &[&str] = &[
+const RUNTIME_HOSTS: &[&str] = &[
     "node.exe",
     "bun.exe",
     "deno.exe",
     "python.exe",
     "python3.exe",
+];
+
+/// IDE hosts that may own an embedded extension agent (`Cline` only). CLI
+/// agents must never bind to an outer IDE process: if the CLI is killed inside
+/// an integrated terminal, the IDE stays alive and would keep the dead session
+/// pinned as working.
+const IDE_HOSTS: &[&str] = &[
     "electron.exe",
     "code.exe",
     "code - insiders.exe",
@@ -326,7 +333,9 @@ pub fn agent_pid_from(
         if wanted.contains(&name) {
             return Some(parent);
         }
-        if fallback.is_none() && GENERIC_HOSTS.contains(&name.as_str()) {
+        let is_fallback_host = RUNTIME_HOSTS.contains(&name.as_str())
+            || (agent == AgentId::Cline && IDE_HOSTS.contains(&name.as_str()));
+        if fallback.is_none() && is_fallback_host {
             fallback = Some(parent);
         }
         cursor = parent;
@@ -441,6 +450,37 @@ mod tests {
         let empty: HashMap<u32, u32> = HashMap::new();
         let names: HashMap<u32, String> = HashMap::new();
         assert_eq!(agent_pid_from(&empty, &names, 1234, AgentId::Cline), None);
+    }
+
+    #[test]
+    fn cli_agents_never_fall_back_to_ide_editor_hosts() {
+        // 100 (us) -> 300 pwsh.exe -> 500 code.exe (the CLI already exited or
+        // spawned through an integrated terminal inside VS Code).
+        let (parents, names) = chain(&[
+            (100, 300, "ember.exe"),
+            (300, 500, "pwsh.exe"),
+            (500, 1, "code.exe"),
+        ]);
+        for cli in [
+            AgentId::ClaudeCode,
+            AgentId::Codex,
+            AgentId::OpenCode,
+            AgentId::Pi,
+            AgentId::OhMyPi,
+            AgentId::Antigravity,
+        ] {
+            assert_eq!(
+                agent_pid_from(&parents, &names, 100, cli),
+                None,
+                "{} must not bind to code.exe",
+                cli.id()
+            );
+        }
+        // Cline genuinely runs inside VS Code / Cursor / Windsurf.
+        assert_eq!(
+            agent_pid_from(&parents, &names, 100, AgentId::Cline),
+            Some(500)
+        );
     }
 
     #[test]

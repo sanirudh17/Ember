@@ -313,3 +313,82 @@
 @media (prefers-reduced-motion: reduce) {
   .seg__thumb, .switch__thumb { transition: none; }
 }
+
+/* Awake page vertical rhythm refinement ONLY (header -> dashboard -> policies -> sessions). */
+.page--awake.awake-workspace {
+  padding: clamp(24px, 3.6vh, 42px) clamp(26px, 3.2vw, 48px) 32px;
+}
+
+.page--awake .hold-surface {
+  padding: 0 0 clamp(22px, 3vh, 32px);
+  gap: 24px;
+}
+
+.page--awake .hold-surface .state__sub {
+  margin-top: 10px;
+}
+
+.page--awake .hold-toolbar {
+  padding: 13px 15px;
+}
+
+.page--awake .hold-toolbar__label {
+  margin-bottom: 9px;
+}
+
+.page--awake .awake-summary {
+  padding: 19px 24px;
+  margin-bottom: 0;
+  gap: 24px;
+}
+
+.page--awake .summary-reading > span {
+  margin-bottom: 8px;
+}
+
+.page--awake .awake-automation {
+  padding: clamp(24px, 3.2vh, 34px) 0 clamp(24px, 3.2vh, 36px);
+  gap: 36px;
+}
+
+.page--awake .automation-option__copy .ctrl__hint {
+  margin-top: 6px;
+}
+
+.page--awake .awake-sessions {
+  padding-top: clamp(22px, 3vh, 32px);
+}
+
+.page--awake .active-session-list {
+  margin-top: 12px;
+}
+
+.page--awake .active-session {
+  padding: 13px 0;
+}
+
+.page--awake .awake-empty {
+  margin-top: 16px;
+}
+
+@media (min-width: 1300px) and (min-height: 800px) {
+  .page--awake.awake-workspace { padding-top: 4.5vh; }
+  .page--awake .hold-surface { padding-bottom: 4vh; }
+  .page--awake .awake-summary { padding: 22px 26px; }
+  .page--awake .awake-automation { padding: 4vh 0; }
+  .page--awake .awake-sessions { padding-top: 3.5vh; }
+}
+
+@media (max-width: 960px) {
+  .page--awake .hold-surface { display: block; padding-bottom: 20px; }
+  .page--awake .hold-toolbar { margin-top: 18px; width: fit-content; max-width: 100%; }
+  .page--awake .awake-automation { grid-template-columns: 1fr; gap: 20px; padding: 20px 0 22px; }
+  .page--awake .awake-sessions { padding-top: 20px; }
+}
+
+@media (max-width: 1100px) and (min-width: 961px) {
+  .page--awake .hold-surface { display: flex; justify-content: space-between; align-items: center; }
+  .page--awake .hold-toolbar { margin-top: 0; }
+  .page--awake .hold-toolbar__label { display: block; margin-right: 0; margin-bottom: 9px; }
+  .page--awake .hold-toolbar .actions { display: flex; }
+}

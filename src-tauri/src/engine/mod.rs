@@ -13,7 +13,7 @@ pub mod manual;
 pub mod snapshot;
 pub mod until;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -132,6 +132,8 @@ pub struct Engine {
     process_at: Option<Instant>,
     agent_info_at: Option<Instant>,
     alive: HashSet<u32>,
+    pid_identities: HashMap<u32, u64>,
+    live_agents: HashSet<AgentId>,
 
     agent_info: Vec<AgentInfo>,
     capabilities: Capabilities,
@@ -188,6 +190,8 @@ impl Engine {
             process_at: None,
             agent_info_at: None,
             alive: HashSet::new(),
+            pid_identities: HashMap::new(),
+            live_agents: HashSet::new(),
             agent_info: Vec::new(),
             capabilities: Capabilities::default(),
             last: Snapshot::default(),
@@ -501,6 +505,8 @@ impl Engine {
         let agents = AgentId::ALL.to_vec();
         let (detections, alive) = self.detector.poll(&agents, now);
         self.alive = alive;
+        self.pid_identities = self.detector.all_identities();
+        self.live_agents = self.detector.live_agents();
         self.registry.on_process(&detections, now);
         self.harness.poll(
             &mut self.registry,
@@ -593,11 +599,27 @@ impl Engine {
             self.refresh_agent_info();
         }
 
-        self.registry.tick(
+        let pruned = self.registry.tick_with_processes(
             Duration::from_secs(self.stale_timeout_min * 60),
             &self.alive,
+            &self.pid_identities,
+            self.process_detection.then_some(&self.live_agents),
             now,
         );
+        if !pruned.is_empty() {
+            for (agent, session_id, pid) in pruned {
+                crate::agents::activity_cache::remove(agent, &session_id, pid);
+                crate::log::append(
+                    "SESSION",
+                    &format!(
+                        "{} pid={} pruned (process exited or vanished)",
+                        agent.id(),
+                        pid.map(|p| p.to_string()).unwrap_or_else(|| "none".into())
+                    ),
+                );
+            }
+            self.dirty = true;
+        }
 
         if self.manual.expired(now_u) {
             self.manual.stop();
@@ -1134,6 +1156,8 @@ mod tests {
         e.process_detection = false;
         e.registry = Registry::new();
         e.alive.clear();
+        e.pid_identities.clear();
+        e.live_agents.clear();
         e.process_at = Some(Instant::now());
         e.agent_info = AgentId::ALL
             .iter()
@@ -1956,5 +1980,93 @@ mod tests {
         assert_eq!(RELEASE_FLOOR, Duration::ZERO);
         assert_eq!(AGENT_INFO_POLL, Duration::from_secs(5));
         assert_eq!(AGENT_INFO_IDLE_POLL, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn manual_hold_is_paused_while_battery_saver_is_on_and_resumes_when_off() {
+        let mut e = engine();
+        let now = Instant::now();
+        e.battery = BatteryStatus {
+            present: true,
+            percent: Some(50),
+            plugged_in: false,
+            saver_on: true,
+        };
+        freeze_battery(&mut e, now);
+
+        // Starting a manual hold while Battery Saver is ON must NOT engage the OS hold.
+        e.start_manual_secs(1800);
+        let out = e.tick(now);
+        assert!(out.snapshot.manual.active);
+        assert_eq!(out.snapshot.blocker, Some(Guard::BatterySaver));
+        assert!(!out.snapshot.want_awake);
+        assert!(!out.snapshot.engaged);
+        assert!(!e.sleep_blocker().is_engaged());
+
+        // Turning Battery Saver OFF automatically resumes the manual hold.
+        e.battery.saver_on = false;
+        let t1 = now + Duration::from_secs(2);
+        freeze_battery(&mut e, t1);
+        let out = e.tick(t1);
+        assert!(out.snapshot.manual.active);
+        assert_eq!(out.snapshot.blocker, None);
+        assert!(out.snapshot.want_awake);
+        assert!(out.snapshot.engaged);
+        assert!(e.sleep_blocker().is_engaged());
+
+        // Turning Battery Saver ON again immediately releases the OS hold.
+        e.battery.saver_on = true;
+        let t2 = now + Duration::from_secs(4);
+        freeze_battery(&mut e, t2);
+        let out = e.tick(t2);
+        assert!(out.snapshot.manual.active);
+        assert_eq!(out.snapshot.blocker, Some(Guard::BatterySaver));
+        assert!(!out.snapshot.want_awake);
+        assert!(!out.snapshot.engaged);
+        assert!(!e.sleep_blocker().is_engaged());
+    }
+
+    #[test]
+    fn abrupt_process_kill_immediately_releases_working_agent_hold() {
+        let mut e = engine();
+        e.settings.watching = true;
+        let t0 = Instant::now();
+        freeze_battery(&mut e, t0);
+
+        // OpenCode starts working with PID 9123, observed live in the process table.
+        e.alive.insert(9123);
+        e.pid_identities.insert(9123, 5000);
+        e.registry.on_hook(
+            HookMessage {
+                agent: AgentId::OpenCode,
+                event: HookEvent::Working,
+                session_id: Some("ses_kill".into()),
+                cwd: Some("C:\\work\\project".into()),
+                pid: Some(9123),
+                ts: 0,
+            },
+            t0,
+        );
+        e.tick(t0);
+        let t1 = t0 + Duration::from_secs(2);
+        freeze_battery(&mut e, t1);
+        let out = e.tick(t1);
+        assert!(out.snapshot.engaged);
+        assert_eq!(out.snapshot.agents_working, 1);
+        assert!(e.sleep_blocker().is_engaged());
+
+        // Abrupt kill (Task Manager / shell command): PID 9123 vanishes with no
+        // End/Idle hook. On the very next tick (1s later, well below PID_GRACE),
+        // the session must disappear and the OS power hold must release immediately.
+        e.alive.remove(&9123);
+        e.pid_identities.remove(&9123);
+        let t2 = t1 + Duration::from_secs(1);
+        freeze_battery(&mut e, t2);
+        let out = e.tick(t2);
+        assert_eq!(out.snapshot.agents_working, 0);
+        assert!(out.snapshot.sessions.is_empty());
+        assert!(!out.snapshot.want_awake);
+        assert!(!out.snapshot.engaged);
+        assert!(!e.sleep_blocker().is_engaged());
     }
 }

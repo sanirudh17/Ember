@@ -30,6 +30,21 @@ fn directory() -> std::path::PathBuf {
 pub fn record(message: &HookMessage) {
     record_at(&directory(), message);
 }
+
+/// Remove a dead session's cached entry and lock file so an abruptly killed
+/// agent process cannot leave stale files on disk.
+pub fn remove(agent: super::AgentId, session_id: &str, pid: Option<u32>) {
+    remove_at(&directory(), agent, session_id, pid);
+}
+
+fn remove_at(dir: &Path, agent: super::AgentId, session_id: &str, pid: Option<u32>) {
+    let Some(pid) = pid else { return };
+    let mut hash = DefaultHasher::new();
+    (agent, session_id).hash(&mut hash);
+    let path = dir.join(format!("{}-{pid}-{:016x}.json", agent.id(), hash.finish()));
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("lock"));
+}
 fn record_at(dir: &Path, message: &HookMessage) {
     let Some(pid) = message.pid else { return };
     let Some(birth) = process_start_time(pid) else {

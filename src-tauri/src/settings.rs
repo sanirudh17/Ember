@@ -131,7 +131,7 @@ impl Default for WindowState {
             x: None,
             y: None,
             width: 1060,
-            height: 680,
+            height: 600,
             maximized: false,
             placed: false,
         }

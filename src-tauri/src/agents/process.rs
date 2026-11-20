@@ -164,6 +164,7 @@ pub struct ProcessDetector {
     sys: System,
     tracks: HashMap<u32, Track>,
     identities: HashMap<u32, u64>,
+    last_live_agents: HashSet<AgentId>,
     created_at: Instant,
     last_refresh: Option<Instant>,
     refreshes: u32,
@@ -184,11 +185,27 @@ impl ProcessDetector {
             sys: System::new(),
             tracks: HashMap::new(),
             identities: HashMap::new(),
+            last_live_agents: HashSet::new(),
             created_at: Instant::now(),
             last_refresh: None,
             refreshes: 0,
             skip_prefixes: install_prefixes(),
         }
+    }
+
+    /// Creation timestamps for every live process seen in the latest poll,
+    /// used to detect PID reuse on hook-owned sessions without extra syscalls.
+    pub fn all_identities(&self) -> HashMap<u32, u64> {
+        self.sys
+            .processes()
+            .iter()
+            .map(|(pid, proc_)| (pid.as_u32(), proc_.start_time()))
+            .collect()
+    }
+
+    /// Agents that had at least one live matched process in the latest poll.
+    pub fn live_agents(&self) -> HashSet<AgentId> {
+        self.last_live_agents.clone()
     }
 
     /// Poll and return detections plus the set of live PIDs.
@@ -353,6 +370,7 @@ impl ProcessDetector {
         // Forget processes that exited or were pruned as runtime wrappers.
         self.tracks
             .retain(|pid, _| alive.contains(pid) && owner.contains_key(pid));
+        self.last_live_agents = owner.values().copied().collect();
 
         let detections = self
             .tracks

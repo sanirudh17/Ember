@@ -805,7 +805,7 @@ function startHeartbeat() {{
 if(!store.exitHooked){{
   store.exitHooked=true;
   const flush=()=>{{for(const [id,st] of store.sessions)fire("end",id,st.cwd);store.sessions.clear();}};
-  process.once("exit",flush); process.once("SIGINT",flush); process.once("SIGTERM",flush);
+  process.once("exit",flush); process.once("SIGINT",flush); process.once("SIGTERM",flush); process.once("SIGHUP",flush); process.once("SIGBREAK",flush);
 }}
 async function handle(ctx,input,v1=false){{
   const type=input?.type||"", data=input?.data||input?.properties||{{}};
@@ -963,7 +963,10 @@ export default function emberExtension(pi) {{
     for (const sessionId of running) fire("working", sessionId);
   }}, 30000);
   heartbeat.unref?.();
+  let cleaned = false;
   const cleanup = () => {{
+    if (cleaned) return;
+    cleaned = true;
     clearInterval(heartbeat);
     for (const sessionId of [...running]) fire("end", sessionId);
     fire("end", lastSessionId);
@@ -971,6 +974,8 @@ export default function emberExtension(pi) {{
   process.once("exit", cleanup);
   process.once("SIGINT", cleanup);
   process.once("SIGTERM", cleanup);
+  process.once("SIGHUP", cleanup);
+  process.once("SIGBREAK", cleanup);
 
   const on = (name, handler) => {{
     try {{
@@ -1074,7 +1079,10 @@ export default function emberExtension(pi) {{
     for (const sessionId of running) fire("working", sessionId);
   }}, 30000);
   heartbeat.unref?.();
+  let cleaned = false;
   const cleanup = () => {{
+    if (cleaned) return;
+    cleaned = true;
     clearInterval(heartbeat);
     for (const sessionId of [...running]) fire("end", sessionId);
     fire("end", lastSessionId);
@@ -1082,6 +1090,8 @@ export default function emberExtension(pi) {{
   process.once("exit", cleanup);
   process.once("SIGINT", cleanup);
   process.once("SIGTERM", cleanup);
+  process.once("SIGHUP", cleanup);
+  process.once("SIGBREAK", cleanup);
 
   const on = (name, handler) => {{
     try {{
