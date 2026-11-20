@@ -191,39 +191,39 @@
 :root[data-theme="light"] { --chrome: #e5e9f0; --bg: #fbfcfe; --surface: #eaf0f6; --hover: #e0e7f0; --glass-edge: #ccd5e2; --glass-strong: #d6dfeb; }
 .hold-toolbar { border-color: color-mix(in srgb,var(--glass-edge) 65%,transparent); }
 
-/* High-contrast neutral studio palette (Test Gemini v6.1 tonal clarity + Ember amber). */
+/* High-contrast neutral studio palette (Test Gemini v6.1 5-step tonal contrast + Ember amber). */
 :root, :root[data-theme="dark"] {
-  --chrome: #111112;
-  --bg: #0b0b0c;
-  --surface: #151517;
-  --hover: #1f1f22;
-  --ink: #f5f5f5;
-  --muted: #9e9ea3;
-  --track: #2e2e32;
-  --glass-solid: #171719;
-  --glass-strong: #28282c;
-  --glass-edge: #29292d;
-  --border-strong: #3c3c42;
+  --chrome: #18181b;
+  --bg: #09090a;
+  --surface: #151518;
+  --hover: #222226;
+  --ink: #f7f7f7;
+  --muted: #9e9ea5;
+  --track: #303036;
+  --glass-solid: #18181b;
+  --glass-strong: #2b2b30;
+  --glass-edge: #2d2d33;
+  --border-strong: #43434b;
   --accent-ink: #1a1208;
-  --card-rim: inset 0 1px 0 rgba(255, 255, 255, 0.055);
-  --seg-thumb-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 1px 3px rgba(0, 0, 0, 0.48), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --page-glow: rgba(255, 255, 255, 0.026);
+  --card-rim: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --seg-thumb-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 1px 3px rgba(0, 0, 0, 0.52), 0 0 0 1px rgba(255, 255, 255, 0.07);
+  --page-glow: rgba(255, 255, 255, 0.03);
 }
 
 :root[data-theme="light"] {
-  --chrome: #eceff4;
-  --bg: #fafbfd;
-  --surface: #f1f4f8;
-  --hover: #e6ebf2;
-  --ink: #0f1217;
-  --muted: #5a6270;
-  --track: #cfd6e0;
+  --chrome: #e4e7ed;
+  --bg: #ffffff;
+  --surface: #f1f3f7;
+  --hover: #e6eaf1;
+  --ink: #0a0c10;
+  --muted: #57606e;
+  --track: #c9d1dd;
   --glass-solid: #ffffff;
   --glass-strong: #ffffff;
-  --glass-edge: #d4dbe4;
-  --border-strong: #b4bfce;
-  --card-rim: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 2px rgba(15, 18, 23, 0.03);
-  --seg-thumb-shadow: 0 1px 3px rgba(15, 18, 23, 0.10), 0 0 0 1px rgba(15, 18, 23, 0.06);
+  --glass-edge: #cdd4de;
+  --border-strong: #aab4c4;
+  --card-rim: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 1px 2px rgba(15, 18, 23, 0.03);
+  --seg-thumb-shadow: 0 1px 3px rgba(15, 18, 23, 0.11), 0 0 0 1px rgba(15, 18, 23, 0.06);
   --page-glow: rgba(15, 18, 23, 0.015);
 }
 
