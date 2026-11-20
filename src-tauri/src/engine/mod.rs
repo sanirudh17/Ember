@@ -476,6 +476,24 @@ impl Engine {
 
     pub fn clear_lid_cap(&mut self) {
         self.lid_cap_tripped = false;
+        self.lid_retry_after = None;
+        self.lid_error = None;
+        self.dirty = true;
+    }
+
+    /// Apply updated user settings, clearing lid retry backoffs and stale lid
+    /// errors whenever lid-related preferences change.
+    pub fn apply_settings(&mut self, settings: Settings) {
+        let lid_changed = settings.lid_proof != self.settings.lid_proof
+            || settings.require_charger_for_lid != self.settings.require_charger_for_lid;
+        if lid_changed {
+            self.lid_retry_after = None;
+            self.lid_error = None;
+            if !settings.lid_proof {
+                self.lid_cap_tripped = false;
+            }
+        }
+        self.settings = settings;
         self.dirty = true;
     }
 
@@ -2078,5 +2096,62 @@ mod tests {
         assert!(!out.snapshot.want_awake);
         assert!(!out.snapshot.engaged);
         assert!(!e.sleep_blocker().is_engaged());
+    }
+
+    #[test]
+    fn watch_toggle_releases_and_reengages_and_lid_settings_clear_stale_errors() {
+        let mut e = engine();
+        e.settings.watching = true;
+        let t0 = Instant::now();
+        freeze_battery(&mut e, t0);
+
+        e.alive.insert(4444);
+        e.registry.on_hook(
+            HookMessage {
+                agent: AgentId::ClaudeCode,
+                event: HookEvent::Working,
+                session_id: Some("watch-toggle".into()),
+                cwd: Some("C:\\work\\repo".into()),
+                pid: Some(4444),
+                ts: 0,
+            },
+            t0,
+        );
+        e.tick(t0);
+        let t1 = t0 + Duration::from_secs(2);
+        freeze_battery(&mut e, t1);
+        assert!(e.tick(t1).snapshot.engaged);
+
+        // Turning Watch for agents OFF releases immediately while keeping the session visible.
+        e.settings.watching = false;
+        let t2 = t1 + Duration::from_secs(1);
+        freeze_battery(&mut e, t2);
+        let off = e.tick(t2);
+        assert!(!off.snapshot.engaged);
+        assert!(!e.sleep_blocker().is_engaged());
+
+        // Turning Watch for agents back ON immediately re-engages.
+        e.settings.watching = true;
+        let t3 = t2 + Duration::from_secs(1);
+        freeze_battery(&mut e, t3);
+        e.tick(t3);
+        let t4 = t3 + Duration::from_secs(2);
+        freeze_battery(&mut e, t4);
+        assert!(e.tick(t4).snapshot.engaged);
+
+        // Changing lid settings clears any stale lid error and retry backoff.
+        e.lid_error = Some("temporary policy error".into());
+        e.lid_retry_after = Some(t4 + Duration::from_secs(30));
+        e.lid_cap_tripped = true;
+        let mut next = e.settings.clone();
+        next.lid_proof = true;
+        e.apply_settings(next);
+        assert!(e.lid_error.is_none());
+        assert!(e.lid_retry_after.is_none());
+
+        let mut disable = e.settings.clone();
+        disable.lid_proof = false;
+        e.apply_settings(disable);
+        assert!(!e.lid_cap_tripped);
     }
 }

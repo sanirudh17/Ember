@@ -592,10 +592,8 @@ pub fn process_start_time(pid: u32) -> Option<u64> {
         let _ = CloseHandle(handle);
     }
     result.ok()?;
-    Some(
-        ((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime)) / 10_000_000
-            - 11_644_473_600,
-    )
+    let ticks = (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime);
+    (ticks / 10_000_000).checked_sub(11_644_473_600)
 }
 
 /// Shared ACP transports do not expose turn boundaries through CPU usage.

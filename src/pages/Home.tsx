@@ -198,7 +198,11 @@ export function HomePage({ onViewAgents }: { onViewAgents: () => void }) {
         <Radar size={19} className="automation-option__icon" aria-hidden="true" />
         <div className="automation-option__copy">
           <div className="ctrl__label">Watch for agents</div>
-          <p className="ctrl__hint">Hold automatically while any of your {snapshot.watched_agents} watched tools is working.</p>
+          <p className="ctrl__hint">
+            {settings.watching
+              ? `Hold automatically while any of your ${snapshot.watched_agents} watched tools is working.`
+              : "Turn on to hold automatically while any coding agent is working."}
+          </p>
         </div>
         <div className="automation-option__control">
           <span aria-hidden="true">{settings.watching ? "On" : "Off"}</span>

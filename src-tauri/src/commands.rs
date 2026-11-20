@@ -64,8 +64,7 @@ pub fn update_settings(
     // Window geometry is engine-owned (it tracks moves and resizes directly)
     // and must not be clobbered by a stale copy in the incoming settings doc.
     settings.window = engine.settings.window.clone();
-    engine.settings = settings;
-    engine.dirty = true;
+    engine.apply_settings(settings);
     commit(&engine)
 }
 
@@ -132,7 +131,10 @@ pub fn pause_for(state: State<'_, Ember>, seconds: u64) -> Result<(), String> {
 
 #[tauri::command]
 pub fn release_lid_now(state: State<'_, Ember>) -> Result<(), String> {
-    engine_of(&state)?.release_lid_now();
+    let mut engine = engine_of(&state)?;
+    engine.settings.lid_proof = false;
+    engine.release_lid_now();
+    let _ = engine.settings.save();
     Ok(())
 }
 

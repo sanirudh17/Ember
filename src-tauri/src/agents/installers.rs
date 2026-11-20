@@ -1301,7 +1301,8 @@ pub fn status(agent: AgentId) -> InstallStatus {
                 let missing = codex_missing_bindings(&text);
                 let bad_exe = cmds.iter().any(|c| !command_matches_running_exe(c, &exe));
                 let bad_key = codex_has_legacy_windows_key(&text, agent);
-                (true, missing || bad_exe || bad_key)
+                let bad_win_exe = codex_windows_command_mismatch(&text, agent, &exe);
+                (true, missing || bad_exe || bad_key || bad_win_exe)
             }
         }
         AgentId::OpenCode | AgentId::Pi | AgentId::OhMyPi => {
@@ -1437,6 +1438,20 @@ fn claude_needs_schema_repair(text: &str, agent: AgentId) -> bool {
                 if have_matcher != binding.matcher {
                     return true;
                 }
+                let wrong_event = group
+                    .get("hooks")
+                    .and_then(|h| h.as_array())
+                    .is_some_and(|handlers| {
+                        handlers.iter().any(|h| {
+                            h.get("command")
+                                .and_then(|c| c.as_str())
+                                .and_then(|c| parse_our_command(agent, c))
+                                .is_some_and(|ev| ev != binding.ember_event)
+                        })
+                    });
+                if wrong_event {
+                    return true;
+                }
             }
         }
     }
@@ -1517,6 +1532,37 @@ fn codex_has_legacy_windows_key(text: &str, agent: AgentId) -> bool {
                         if ours
                             && (h.get("command_windows").is_some()
                                 || h.get("commandWindows").is_none())
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn codex_windows_command_mismatch(text: &str, agent: AgentId, exe: &Path) -> bool {
+    let Ok(doc) = text.parse::<DocumentMut>() else {
+        return false;
+    };
+    let Some(hooks) = doc.get("hooks").and_then(Item::as_table) else {
+        return false;
+    };
+    for (_, item) in hooks.iter() {
+        if let Some(aot) = item.as_array_of_tables() {
+            for group in aot.iter() {
+                if let Some(handlers) = group.get("hooks").and_then(Item::as_array_of_tables) {
+                    for h in handlers.iter() {
+                        let ours = h
+                            .get("command")
+                            .and_then(Item::as_str)
+                            .map(|c| parse_our_command(agent, c).is_some())
+                            .unwrap_or(false);
+                        if ours
+                            && let Some(win_cmd) = h.get("commandWindows").and_then(Item::as_str)
+                            && !command_matches_running_exe(win_cmd, exe)
                         {
                             return true;
                         }

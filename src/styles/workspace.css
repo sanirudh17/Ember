@@ -191,19 +191,40 @@
 :root[data-theme="light"] { --chrome: #e5e9f0; --bg: #fbfcfe; --surface: #eaf0f6; --hover: #e0e7f0; --glass-edge: #ccd5e2; --glass-strong: #d6dfeb; }
 .hold-toolbar { border-color: color-mix(in srgb,var(--glass-edge) 65%,transparent); }
 
-/* Neutral graphite: warm white text and amber controls on quiet charcoal. */
+/* High-contrast neutral studio palette (Test Gemini v6.1 tonal clarity + Ember amber). */
 :root, :root[data-theme="dark"] {
-  --chrome: #171717;
-  --bg: #111213;
-  --surface: #1b1c1e;
-  --hover: #252628;
-  --ink: #efefed;
-  --muted: #adaeaf;
-  --track: #353638;
-  --glass-solid: #1b1c1e;
-  --glass-strong: #292a2c;
-  --glass-edge: #303133;
-  --accent-ink: #21180d;
+  --chrome: #111112;
+  --bg: #0b0b0c;
+  --surface: #151517;
+  --hover: #1f1f22;
+  --ink: #f5f5f5;
+  --muted: #9e9ea3;
+  --track: #2e2e32;
+  --glass-solid: #171719;
+  --glass-strong: #28282c;
+  --glass-edge: #29292d;
+  --border-strong: #3c3c42;
+  --accent-ink: #1a1208;
+  --card-rim: inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  --seg-thumb-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 1px 3px rgba(0, 0, 0, 0.48), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --page-glow: rgba(255, 255, 255, 0.026);
+}
+
+:root[data-theme="light"] {
+  --chrome: #eceff4;
+  --bg: #fafbfd;
+  --surface: #f1f4f8;
+  --hover: #e6ebf2;
+  --ink: #0f1217;
+  --muted: #5a6270;
+  --track: #cfd6e0;
+  --glass-solid: #ffffff;
+  --glass-strong: #ffffff;
+  --glass-edge: #d4dbe4;
+  --border-strong: #b4bfce;
+  --card-rim: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 2px rgba(15, 18, 23, 0.03);
+  --seg-thumb-shadow: 0 1px 3px rgba(15, 18, 23, 0.10), 0 0 0 1px rgba(15, 18, 23, 0.06);
+  --page-glow: rgba(15, 18, 23, 0.015);
 }
 
 /* Surgical polish on top of Ember's stable monochrome / cool-blue + amber UI:
@@ -253,6 +274,7 @@
   left: 0;
   border-radius: 5px;
   background: var(--glass-strong);
+  box-shadow: var(--seg-thumb-shadow);
   pointer-events: none;
   z-index: 0;
   opacity: 0;
@@ -612,4 +634,49 @@
 
 .dialog--custom .dialog__actions {
   margin-top: 26px;
+}
+
+/* Studio micro-craft polish (Test Gemini v6.1 tonal clarity, zero layout removals). */
+.content {
+  background-image: radial-gradient(ellipse 72% 36% at 50% 0%, var(--page-glow), transparent 72%);
+  background-repeat: no-repeat;
+}
+
+.page--awake .awake-summary {
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--card-rim);
+}
+
+.page--awake .hold-toolbar {
+  border-color: var(--glass-edge);
+  box-shadow: var(--card-rim);
+}
+
+.btn--quiet {
+  transition: background-color 130ms ease, border-color 130ms ease, color 130ms ease, transform 90ms ease;
+}
+
+.btn--quiet:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.navlink {
+  border: 1px solid transparent;
+  transition: background-color 130ms ease, border-color 130ms ease, color 130ms ease;
+}
+
+.navlink.is-active {
+  border-color: var(--glass-edge);
+  box-shadow: var(--card-rim);
+}
+
+.page--awake .active-session {
+  margin: 0 -10px;
+  padding: 12px 10px;
+  border-radius: 7px;
+  transition: background-color 130ms ease;
+}
+
+.page--awake .active-session:hover {
+  background: color-mix(in srgb, var(--hover) 65%, transparent);
 }

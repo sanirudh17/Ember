@@ -39,11 +39,19 @@ pub fn remove(agent: super::AgentId, session_id: &str, pid: Option<u32>) {
 
 fn remove_at(dir: &Path, agent: super::AgentId, session_id: &str, pid: Option<u32>) {
     let Some(pid) = pid else { return };
-    let mut hash = DefaultHasher::new();
-    (agent, session_id).hash(&mut hash);
-    let path = dir.join(format!("{}-{pid}-{:016x}.json", agent.id(), hash.finish()));
-    let _ = std::fs::remove_file(&path);
-    let _ = std::fs::remove_file(path.with_extension("lock"));
+    let remove_key = |sid: &str| {
+        let mut hash = DefaultHasher::new();
+        (agent, sid).hash(&mut hash);
+        let path = dir.join(format!("{}-{pid}-{:016x}.json", agent.id(), hash.finish()));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("lock"));
+    };
+    remove_key(session_id);
+    // Hooks without a session_id are cached under `""` while the registry keys
+    // them as `pid:{pid}`; clear both so dead PIDs never leave stale files.
+    if session_id == format!("pid:{pid}") {
+        remove_key("");
+    }
 }
 fn record_at(dir: &Path, message: &HookMessage) {
     let Some(pid) = message.pid else { return };
@@ -355,6 +363,42 @@ mod tests {
         assert!(
             !orphan.exists(),
             "orphaned .lock files must be pruned on restore"
+        );
+        assert!(dir.starts_with(std::env::temp_dir()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn remove_cleans_both_explicit_and_pid_synthesized_cache_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "ember-cache-remove-{}-{}",
+            std::process::id(),
+            unix_now()
+        ));
+        let pid = std::process::id();
+        // Hook with no session_id is recorded under `""`, while registry keys it as `pid:{pid}`.
+        let msg = HookMessage {
+            agent: super::super::AgentId::Codex,
+            event: HookEvent::Working,
+            session_id: None,
+            cwd: None,
+            pid: Some(pid),
+            ts: unix_now(),
+        };
+        record_at(&dir, &msg);
+        assert!(
+            std::fs::read_dir(&dir)
+                .unwrap()
+                .flatten()
+                .any(|f| f.path().extension().is_some_and(|e| e == "json"))
+        );
+        remove_at(&dir, super::super::AgentId::Codex, &format!("pid:{pid}"), Some(pid));
+        assert!(
+            !std::fs::read_dir(&dir)
+                .unwrap()
+                .flatten()
+                .any(|f| f.path().extension().is_some_and(|e| e == "json")),
+            "removing a pid-synthesized dead session must delete its cached file"
         );
         assert!(dir.starts_with(std::env::temp_dir()));
         std::fs::remove_dir_all(dir).unwrap();
