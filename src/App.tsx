@@ -31,7 +31,7 @@ function routeFromLocation(): Route {
 export function App() {
   const { snapshot, settings, loading, error, reload } = useStore();
   const [route, setRoute] = useState<Route>(routeFromLocation);
-  const contentRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLElement | null>(null);
   const ready = Boolean(snapshot && settings);
   const revealed = useRef(false);
 
@@ -64,7 +64,7 @@ export function App() {
     <AppearanceProvider>
       <div className="app">
         <TopBar route={route} onNavigate={setRoute} />
-        <div className="content" ref={contentRef}>
+        <main className="content" ref={contentRef}>
           {!ready ? (
             loading ? (
               <PageSkeleton />
@@ -78,7 +78,7 @@ export function App() {
               {route === "settings" && <SettingsPage />}
             </ErrorBoundary>
           )}
-        </div>
+        </main>
         {IS_TAURI && (
           <div className="resize-frame" aria-hidden="true">
             {DIRECTIONS.map((direction) => (

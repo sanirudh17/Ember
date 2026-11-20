@@ -106,13 +106,20 @@ export function Segmented<T extends string>({
 
   const measure = useCallback(
     (animate: boolean) => {
+      const group = groupRef.current;
       const btn = buttonRefs.current[activeIndex];
-      if (!btn) return;
-      const left = btn.offsetLeft;
-      const width = btn.offsetWidth;
+      if (!group || !btn) return;
+      const groupRect = group.getBoundingClientRect();
+      const btnRect = btn.getBoundingClientRect();
+      const left = btnRect.left - groupRect.left - group.clientLeft;
+      const width = btnRect.width;
       if (width <= 0) return;
       setThumb((prev) => {
-        if (prev.ready && prev.left === left && prev.width === width) {
+        if (
+          prev.ready &&
+          Math.abs(prev.left - left) < 0.05 &&
+          Math.abs(prev.width - width) < 0.05
+        ) {
           return prev;
         }
         return { left, width, ready: true, animate };

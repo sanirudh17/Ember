@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-20T14:58:00Z",
+  "title": "Design System: Ember",
+  "extensions": {
+    "colorMeta": {
+      "ember-amber": {
+        "role": "primary",
+        "displayName": "Ember Amber (Dark)",
+        "canonical": "#f59e0b",
+        "tonalRamp": ["#2d1a02", "#593404", "#8c5306", "#c27408", "#f59e0b", "#fbbf24", "#fcd34d", "#fef3c7"]
+      },
+      "ember-amber-light": {
+        "role": "primary",
+        "displayName": "Ember Amber (Light)",
+        "canonical": "#c95804",
+        "tonalRamp": ["#2b1201", "#542402", "#873a03", "#ad4902", "#c95804", "#ea7a1f", "#f6ad65", "#ffedd5"]
+      },
+      "obsidian-chrome": {
+        "role": "neutral",
+        "displayName": "Obsidian Chrome",
+        "canonical": "#07080a",
+        "tonalRamp": ["#050608", "#07080a", "#121419", "#1a1e26", "#292f3b", "#5b6578", "#bcc4d3", "#f5f7fa"]
+      },
+      "slate-chrome-light": {
+        "role": "neutral",
+        "displayName": "Slate Chrome (Light)",
+        "canonical": "#dde2ec",
+        "tonalRamp": ["#111418", "#3c4555", "#5b6578", "#94a0b5", "#cfd6e3", "#dde2ec", "#f4f6fa", "#ffffff"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Page titles and primary Awake hold state." },
+      "headline": { "displayName": "Headline", "purpose": "Dialog titles." },
+      "title": { "displayName": "Title", "purpose": "Section headers across Awake, Agents, and Settings." },
+      "body": { "displayName": "Body", "purpose": "Row titles, descriptions, and telemetry values." },
+      "label": { "displayName": "Label", "purpose": "Buttons, segmented controls, and readout keys." }
+    },
+    "shadows": [
+      {
+        "name": "glass-pane",
+        "value": "inset 0 1px 0 var(--glass-rim), inset 0 0 0 1px var(--glass-inner), 0 1px 2px var(--glass-contact), 0 12px 28px -16px var(--glass-shade)",
+        "purpose": "Edge-lit Solid Glass panes for Manual hold, Dashboard readout, Settings groups, and Agent tables."
+      },
+      {
+        "name": "glass-control",
+        "value": "inset 0 1px 0 var(--glass-control-rim), inset 0 -1px 0 var(--glass-under), 0 1px 2px var(--glass-contact)",
+        "purpose": "Raised Solid Glass buttons, active sidebar pill, and sliding segmented thumb."
+      },
+      {
+        "name": "milled-well",
+        "value": "inset 0 1px 2px var(--well-shade), inset 0 -1px 0 var(--well-rim)",
+        "purpose": "Recessed grooves for segmented tracks, off switches, and inputs."
+      }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Sliding segmented thumb, switch thumb, and subtle view entry." },
+      { "name": "t-fast", "value": "140ms", "purpose": "Hover, border, and color micro-interactions." },
+      { "name": "t-ui", "value": "220ms", "purpose": "Segmented thumb glide and switch travel." }
+    ],
+    "breakpoints": [
+      { "name": "compact-band", "value": "1040px" },
+      { "name": "narrow-desktop", "value": "820px" },
+      { "name": "min-width", "value": "620px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Solid Glass Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Edge-lit Ember amber key for primary hold actions and confirmations.",
+      "html": "<button class=\"ds-btn-primary\"><span class=\"ds-label\">End hold</span></button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 13px; border-radius: 7px; border: 1px solid rgba(0,0,0,0.28); background: var(--accent, #f59e0b); color: var(--accent-ink, #1a1002); font-size: 13px; font-weight: 500; box-shadow: inset 0 1px 0 rgba(255,255,255,0.36), inset 0 -1px 0 rgba(0,0,0,0.24), 0 1px 2px rgba(0,0,0,0.36); cursor: pointer; transition: background-color 140ms ease, transform 110ms ease; } .ds-btn-primary:hover { background: var(--accent-hover, #fbbf24); } .ds-btn-primary:active { transform: translateY(0.5px) scale(0.985); } .ds-label { line-height: 1; text-box-trim: trim-both; text-box-edge: cap alphabetic; }"
+    },
+    {
+      "name": "Quiet Solid Glass Button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "Tactile smoked/porcelain glass key for manual durations and secondary actions.",
+      "html": "<button class=\"ds-btn-quiet\"><span class=\"ds-label\">30m</span></button>",
+      "css": ".ds-btn-quiet { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 13px; border-radius: 7px; border: 1px solid var(--glass-edge-strong, rgba(255,255,255,0.155)); background: var(--glass-control, rgba(41,47,59,0.92)); color: var(--ink, #f5f7fa); font-size: 13px; font-weight: 500; box-shadow: inset 0 1px 0 var(--glass-control-rim, rgba(255,255,255,0.16)), inset 0 -1px 0 var(--glass-under, rgba(0,0,0,0.34)), 0 1px 2px var(--glass-contact, rgba(0,0,0,0.36)); cursor: pointer; transition: background-color 140ms ease; } .ds-btn-quiet:hover { background: var(--glass-control-hover, rgba(54,62,77,0.96)); }"
+    },
+    {
+      "name": "Solid Glass Pane",
+      "kind": "card",
+      "refersTo": "glass-pane",
+      "description": "Edge-lit framed container for Manual hold, Dashboard readout, and Settings groups.",
+      "html": "<div class=\"ds-glass-pane\"><strong>Holding this PC awake</strong></div>",
+      "css": ".ds-glass-pane { background: var(--glass-panel, rgba(26,30,38,0.84)); border: 1px solid var(--glass-edge, rgba(255,255,255,0.095)); border-radius: 10px; padding: 15px 18px; color: var(--ink, #f5f7fa); box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255,255,255,0.125)), 0 1px 2px var(--glass-contact, rgba(0,0,0,0.36)), 0 12px 28px -16px var(--glass-shade, rgba(0,0,0,0.64)); }"
+    },
+    {
+      "name": "Sliding Segmented Control",
+      "kind": "custom",
+      "refersTo": "segmented-thumb",
+      "description": "Milled recessed track with raised Solid Glass thumb and cap-centered labels.",
+      "html": "<div class=\"ds-seg\"><span class=\"ds-seg-active\">System</span><span class=\"ds-seg-item\">Light</span><span class=\"ds-seg-item\">Dark</span></div>",
+      "css": ".ds-seg { display: inline-flex; padding: 3px; border-radius: 9px; background: var(--well, #090b0f); border: 1px solid var(--well-border, rgba(255,255,255,0.075)); box-shadow: inset 0 1px 2px var(--well-shade, rgba(0,0,0,0.56)), inset 0 -1px 0 var(--well-rim, rgba(255,255,255,0.08)); } .ds-seg-active, .ds-seg-item { display: inline-grid; place-items: center; height: 28px; padding: 0 13px; font-size: 12.5px; font-weight: 500; line-height: 1; text-box-trim: trim-both; text-box-edge: cap alphabetic; } .ds-seg-active { border-radius: 6px; background: var(--glass-control, rgba(41,47,59,0.92)); border: 1px solid var(--glass-edge-strong, rgba(255,255,255,0.155)); color: var(--ink, #f5f7fa); box-shadow: inset 0 1px 0 var(--glass-control-rim, rgba(255,255,255,0.16)), 0 1px 2px var(--glass-contact, rgba(0,0,0,0.36)); } .ds-seg-item { color: var(--ink-muted, #8b95a8); }"
+    },
+    {
+      "name": "Sidebar Navigation Pill",
+      "kind": "nav",
+      "refersTo": "button-quiet",
+      "description": "Active navigation item resting inside the outer chrome rail.",
+      "html": "<button class=\"ds-nav\">Awake</button>",
+      "css": ".ds-nav { display: flex; align-items: center; height: 35px; padding: 0 12px; border-radius: 7px; background: var(--glass-control, rgba(41,47,59,0.92)); border: 1px solid var(--glass-edge, rgba(255,255,255,0.095)); color: var(--ink, #f5f7fa); font-size: 13.5px; font-weight: 500; box-shadow: inset 0 1px 0 var(--glass-control-rim, rgba(255,255,255,0.16)), 0 1px 2px var(--glass-contact, rgba(0,0,0,0.36)); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Solid Glass Instrument",
+    "overview": "Ember is a tactile, edge-lit desktop instrument built for Windows developers running coding agents. It bridges flat utility clarity and Solid Glass materiality: thick, near-opaque smoked dark panes and luminous porcelain light panes that read as solid from afar and reveal delicate top specular rims, crisp hairlines, and grounded contact shadows up close.",
+    "keyCharacteristics": [
+      "Clear 3-tier tonal contrast: outer shell, inset workspace sheet, and edge-lit Solid Glass panes.",
+      "Finish lives strictly at the edge (top specular rim + hairline + grounded shadow); faces stay flat and readable.",
+      "Recessed grooves for switch and segmented tracks contrast physically with raised floating glass thumbs.",
+      "Optical cap-height centering across every button and sliding segmented control via CSS text-box-trim."
+    ],
+    "rules": [
+      {
+        "name": "The Edge-Only Finish Rule",
+        "body": "Glass materiality is expressed through a 1px top specular highlight, a crisp outer hairline, and a grounded contact shadow—never surface gradients or muddy transparency over text.",
+        "section": "colors"
+      },
+      {
+        "name": "The Amber Restraint Rule",
+        "body": "Ember amber signals active awake state, enabled policies, and primary CTAs only; chrome stays strictly neutral, and violet/lavender is never introduced.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "Do preserve strong tonal separation between outer chrome (--chrome), wrapped workspace sheet (--canvas), and Solid Glass panes (--glass-panel) in both themes.",
+      "Do center all button and segmented labels with .control-label cap-height trimming so text never sits low inside controls.",
+      "Do keep Manual hold and the 4-metric Dashboard readout framed in distinct .glass-pane rectangles while keeping Automatic policies open on the canvas for visual rhythm."
+    ],
+    "donts": [
+      "Don't nest bordered cards inside other bordered cards; use hairline dividers inside a single .glass-pane.",
+      "Don't use hyper-transparent liquid glass blur or color gradients across readable text faces.",
+      "Don't introduce violet or lavender tones into Ember's own palette, or strip concise helper descriptions from Settings rows."
+    ]
+  }
+}

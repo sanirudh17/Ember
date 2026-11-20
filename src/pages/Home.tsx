@@ -1,5 +1,6 @@
 /**
- * Awake — primary status, manual hold controls, live readings, and active sessions.
+ * Awake — live hold state, framed Solid Glass manual hold toolbar,
+ * 4-metric instrument readout, automatic policies, and active sessions.
  */
 
 import { useState } from "react";
@@ -22,40 +23,49 @@ interface StateCopy {
 function stateCopy(s: Snapshot): StateCopy {
   if (s.paused) {
     return {
-      title: "Paused",
-      detail: s.paused_countdown ? `Resumes in ${s.paused_countdown}` : "All holds suspended",
+      title: "Paused.",
+      detail: s.paused_countdown
+        ? `Ember resumes in ${s.paused_countdown}.`
+        : "Ember is not holding this PC awake right now.",
     };
   }
   if (s.blocker === "battery_low") {
     return {
-      title: "Waiting for power",
-      detail: `Below ${s.settings.battery_floor_percent}% battery floor`,
+      title: "Waiting for power.",
+      detail:
+        s.blocker_detail ??
+        `The battery is below ${s.settings.battery_floor_percent}%, so Ember let go to protect your session.`,
     };
   }
   if (s.blocker === "battery_saver") {
     return {
-      title: "Battery saver on",
-      detail: "Hold released by Windows",
+      title: "Battery saver is on.",
+      detail:
+        s.blocker_detail ??
+        "Windows asked for power saving, so Ember let go until it is off again.",
     };
   }
   if (s.blocker === "lid_cap") {
     return {
-      title: "Lid cap reached",
-      detail: `Restored after ${s.lid.cap_hours}h`,
+      title: "Safety cap reached.",
+      detail:
+        s.blocker_detail ??
+        `Ember restored the lid action after ${s.lid.cap_hours} hours and kept holding the PC.`,
     };
   }
   if (s.manual.active) {
     const detail = s.manual.unlimited
-      ? "Manual hold · Until released"
+      ? "A manual hold is keeping this PC and display awake until you end it."
       : s.manual.mode === "until"
-        ? `Manual hold · ${s.manual.mode_label}`
-        : `Manual hold · ${s.manual.countdown} left`;
-    return { title: "Holding awake", detail };
+        ? `A manual hold runs ${s.manual.mode_label.toLowerCase()}.`
+        : `A manual hold ends in ${s.manual.countdown}.`;
+    return { title: "Holding this PC awake.", detail };
   }
   if (!s.watching) {
     return {
-      title: "Watching off",
-      detail: "Manual holds remain available",
+      title: "Watching is off.",
+      detail:
+        "Ember holds nothing automatically while watching is off. Manual holds remain available.",
     };
   }
   if (s.agents_working > 0) {
@@ -66,32 +76,35 @@ function stateCopy(s: Snapshot): StateCopy {
     ];
     const detail =
       names.length === 1
-        ? `${names[0]} working`
+        ? `${names[0]} is working.`
         : names.length === 2
-          ? `${names[0]} & ${names[1]} working`
-          : `${names.slice(0, 2).join(", ")} +${names.length - 2} working`;
-    return { title: "Holding awake", detail };
+          ? `${names[0]} and ${names[1]} are working.`
+          : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more are working.`;
+    return { title: "Holding this PC awake.", detail };
   }
   if (s.engaged) {
-    return { title: "Finishing up", detail: "Releasing hold" };
+    return {
+      title: "Finishing up.",
+      detail: "Releasing the hold as the remaining activity settles.",
+    };
   }
   return {
-    title: "Standing by",
+    title: "Standing by.",
     detail:
       s.watched_agents > 0
-        ? `${plural(s.watched_agents, "tool", "tools")} watched`
-        : "No tools detected",
+        ? `Watching ${plural(s.watched_agents, "agent", "agents")}; nothing is working right now.`
+        : "No coding agents detected on this machine yet.",
   };
 }
 
 function readings(s: Snapshot): { k: string; v: string }[] {
   const battery = !s.battery.present
     ? "AC power"
-    : `${s.battery.percent ?? "—"}% · ${s.battery.plugged_in ? "Plugged in" : "Battery"}${
-        s.battery.saver_on ? " · Saver" : ""
+    : `${s.battery.percent ?? "—"}% · ${s.battery.plugged_in ? "Plugged in" : "On battery"}${
+        s.battery.saver_on ? " · Saver on" : ""
       }`;
   const lid = s.lid.held
-    ? `${duration(s.lid.held_secs)} / ${s.lid.cap_hours}h`
+    ? `${duration(s.lid.held_secs)} of ${s.lid.cap_hours}h`
     : s.lid.proof_enabled
       ? "Armed"
       : "Off";
@@ -137,7 +150,9 @@ export function HomePage({ onViewAgents }: { onViewAgents: () => void }) {
         <div className="hold-band__status">
           <div className="hold-band__headline">
             <span
-              className={`status-dot${snapshot.engaged ? " is-engaged" : snapshot.blocker ? " is-blocked" : ""}`}
+              className={`status-dot${
+                snapshot.engaged ? " is-engaged" : snapshot.blocker ? " is-blocked" : ""
+              }`}
               aria-hidden="true"
             />
             <h1 className="h1">{copy.title}</h1>
@@ -145,7 +160,7 @@ export function HomePage({ onViewAgents }: { onViewAgents: () => void }) {
           <p className="status-detail">{copy.detail}</p>
         </div>
 
-        <div className="manual-box">
+        <div className="manual-box glass-pane">
           <span className="manual-box__label">Manual hold</span>
           <div className="actions">
             {snapshot.manual.active ? (
@@ -193,7 +208,7 @@ export function HomePage({ onViewAgents }: { onViewAgents: () => void }) {
         </p>
       )}
 
-      <section className="readout-bar" aria-label="Device status">
+      <section className="readout-panel glass-pane" aria-label="Hold and device status">
         {rows.map((row) => (
           <div className="readout-cell" key={row.k}>
             <span className="readout-cell__k">{row.k}</span>
@@ -202,34 +217,51 @@ export function HomePage({ onViewAgents }: { onViewAgents: () => void }) {
         ))}
       </section>
 
-      <section className="policy-grid" aria-label="Automation">
-        <div className={`policy-row${settings.watching ? " is-enabled" : ""}`}>
-          <div className="policy-row__lead">
-            <Radar size={18} className="policy-row__icon" aria-hidden="true" />
-            <span className="policy-row__label">Watch for agents</span>
+      <section className="policy-grid" aria-label="Automatic holds">
+        <div className={`policy-option${settings.watching ? " is-enabled" : ""}`}>
+          <Radar size={18} className="policy-option__icon" aria-hidden="true" />
+          <div className="policy-option__copy">
+            <div className="policy-option__label">Watch for agents</div>
+            <p className="policy-option__hint">
+              Hold automatically while any of your {snapshot.watched_agents} watched tools runs.
+            </p>
           </div>
-          <Switch
-            label="Watch for agents"
-            checked={settings.watching}
-            onChange={(next) => void setWatching(next)}
-          />
+          <div className="policy-option__control">
+            <span aria-hidden="true">{settings.watching ? "On" : "Off"}</span>
+            <Switch
+              label="Watch for agents"
+              checked={settings.watching}
+              onChange={(next) => void setWatching(next)}
+            />
+          </div>
         </div>
 
-        <div className={`policy-row${settings.lid_proof ? " is-enabled" : ""}`}>
-          <div className="policy-row__lead">
-            <Laptop size={18} className="policy-row__icon" aria-hidden="true" />
-            <span className="policy-row__label">Lid-proof</span>
-            {!lidUsable && <span className="policy-row__tag">Unavailable</span>}
-            {lidUsable && snapshot.lid.held && (
-              <span className="policy-row__tag policy-row__tag--active">Held</span>
-            )}
+        <div className={`policy-option${settings.lid_proof ? " is-enabled" : ""}`}>
+          <Laptop size={18} className="policy-option__icon" aria-hidden="true" />
+          <div className="policy-option__copy">
+            <div className="policy-option__label">
+              Lid-proof
+              {lidUsable && snapshot.lid.held && (
+                <span className="policy-row__tag policy-row__tag--active">Held</span>
+              )}
+            </div>
+            <p className="policy-option__hint">
+              {!lidUsable
+                ? "No lid switch available on this machine."
+                : snapshot.lid.note || "Keep working with the lid closed during a hold."}
+            </p>
           </div>
-          <Switch
-            label="Lid-proof"
-            checked={settings.lid_proof}
-            disabled={!lidUsable}
-            onChange={(next) => apply({ lid_proof: next })}
-          />
+          <div className="policy-option__control">
+            <span aria-hidden="true">
+              {!lidUsable ? "Unavailable" : settings.lid_proof ? "On" : "Off"}
+            </span>
+            <Switch
+              label="Lid-proof"
+              checked={settings.lid_proof}
+              disabled={!lidUsable}
+              onChange={(next) => apply({ lid_proof: next })}
+            />
+          </div>
         </div>
       </section>
 
@@ -256,7 +288,7 @@ export function HomePage({ onViewAgents }: { onViewAgents: () => void }) {
                   key={`${session.agent}:${session.session_id}`}
                 >
                   <div className="session-row__agent">
-                    <AgentIcon agent={session.agent} size={18} />
+                    <AgentIcon agent={session.agent} size={19} />
                     <span className="session-row__name">{session.agent_name}</span>
                   </div>
                   <span className="session-row__folder">{session.folder}</span>
@@ -272,7 +304,10 @@ export function HomePage({ onViewAgents }: { onViewAgents: () => void }) {
             })}
           </div>
         ) : (
-          <div className="empty-state">No open sessions</div>
+          <div className="empty-state">
+            <span>No agents working</span>
+            <small>Start a coding agent. Its activity will appear here.</small>
+          </div>
         )}
       </section>
 
