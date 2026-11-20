@@ -26,11 +26,11 @@ pub const MAIN_WINDOW: &str = "main";
 /// The state loop's period. The engine throttles snapshots to 1/s itself.
 const LOOP_INTERVAL: Duration = Duration::from_millis(250);
 
-/// Ember's default window size, in logical pixels. Wide enough to open in
-/// the dashboard form (the layout folds below 1040px) and compact enough to
-/// sit cleanly above the Windows taskbar on first launch across 100–175% DPI.
-pub const DEFAULT_WIDTH: u32 = 1060;
-pub const DEFAULT_HEIGHT: u32 = 600;
+/// Ember's default window size, in logical pixels. Opens centered inside the
+/// monitor work area (e.g. 1432x894 at 125% DPI on 1080p) with balanced
+/// breathing room below the top edge and well clear of the Windows taskbar.
+pub const DEFAULT_WIDTH: u32 = 1146;
+pub const DEFAULT_HEIGHT: u32 = 715;
 
 /// Ignore maximization transition frames when remembering normal geometry.
 pub fn oversized_restore(width: u32, height: u32, monitor_width: u32, monitor_height: u32) -> bool {
@@ -114,34 +114,33 @@ pub fn fit_to_work_area(
     scale: f64,
 ) -> (i32, i32, u32, u32) {
     let (left, top, ww, wh) = work;
-    let margin = ((24.0 * scale).round() as u32).min(ww.min(wh) / 4);
-    let bottom_margin = ((32.0 * scale).round() as u32).min(wh / 4);
-    let max_w = ww.saturating_sub(2 * margin).max(1);
-    let max_h = wh.saturating_sub(margin + bottom_margin).max(1);
+    let h_margin = ((24.0 * scale).round() as u32).min(ww / 4);
+    // Keep generous, symmetric vertical clearance (~50 logical px; ~63px at
+    // 125% DPI) below the top edge and above the Windows taskbar on every DPI.
+    let v_margin = ((50.0 * scale).round() as u32).min(wh / 4);
+    let max_w = ww.saturating_sub(2 * h_margin).max(1);
+    let max_h = wh.saturating_sub(2 * v_margin).max(1);
     let (w, h) = match saved {
         Some((_, _, w, h)) => (w.min(max_w).max(1), h.min(max_h).max(1)),
         None => {
-            // Keep first-launch height compact enough to float well clear of
-            // the Windows taskbar even on 150% DPI 1080p or 768p laptops.
-            let fresh_max_h = (wh * 82 / 100).min(max_h).max(1);
             let w = ((f64::from(DEFAULT_WIDTH) * scale).round() as u32)
                 .min(max_w)
                 .max(1);
             let h = ((f64::from(DEFAULT_HEIGHT) * scale).round() as u32)
-                .min(fresh_max_h)
+                .min(max_h)
                 .max(1);
             (w, h)
         }
     };
     let (x, y) = saved.map(|(x, y, _, _)| (x, y)).unwrap_or((
         left + ((ww - w) / 2) as i32,
-        top + ((wh - h) / 2) as i32 - (18.0 * scale).round() as i32,
+        top + ((wh - h) / 2) as i32,
     ));
-    let max_x = left + ww.saturating_sub(w + margin) as i32;
-    let max_y = top + wh.saturating_sub(h + bottom_margin) as i32;
+    let max_x = left + ww.saturating_sub(w + h_margin) as i32;
+    let max_y = top + wh.saturating_sub(h + v_margin) as i32;
     (
-        x.clamp(left + margin as i32, max_x.max(left + margin as i32)),
-        y.clamp(top + margin as i32, max_y.max(top + margin as i32)),
+        x.clamp(left + h_margin as i32, max_x.max(left + h_margin as i32)),
+        y.clamp(top + v_margin as i32, max_y.max(top + v_margin as i32)),
         w,
         h,
     )
@@ -447,26 +446,29 @@ mod tests {
 
     #[test]
     fn default_and_saved_rects_stay_clear_of_the_taskbar() {
+        // 1920x1080 at 125% DPI (work area 1920x1020): opens centered at
+        // 1432x894 with ~63px top margin and ~63px clearance above the taskbar.
         let fresh = fit_to_work_area(None, (0, 0, 1920, 1020), 1.25);
-        assert_eq!((fresh.2, fresh.3), (1325, 750));
-        assert!(fresh.1 + fresh.3 as i32 <= 980);
-        // 1920x1080 laptop at 150% DPI (work area 1920x1008): first launch must
-        // stay compact and leave generous breathing room above the taskbar.
+        assert_eq!((fresh.2, fresh.3), (1433, 894));
+        assert!(fresh.1 >= 63);
+        assert!(fresh.1 + fresh.3 as i32 <= 957);
+        // 1920x1080 laptop at 150% DPI (work area 1920x1008): stays well clear
+        // of both top edge and taskbar (~75px each side).
         let hidpi = fit_to_work_area(None, (0, 0, 1920, 1008), 1.5);
-        assert!(hidpi.3 <= 826);
-        assert!(hidpi.1 + hidpi.3 as i32 <= 960);
+        assert!(hidpi.1 >= 75);
+        assert!(hidpi.1 + hidpi.3 as i32 <= 933);
         // 1366x768 laptop at 100% DPI (work area 1366x728).
         let laptop = fit_to_work_area(None, (0, 0, 1366, 728), 1.0);
-        assert!(laptop.3 <= 596);
-        assert!(laptop.1 + laptop.3 as i32 <= 696);
+        assert!(laptop.1 >= 50);
+        assert!(laptop.1 + laptop.3 as i32 <= 678);
         let saved = fit_to_work_area(Some((270, 65, 1380, 889)), (0, 0, 1920, 1020), 1.25);
         assert_eq!(saved, (270, 65, 1380, 889));
         let small = fit_to_work_area(Some((-2000, 500, 1540, 970)), (-1280, 0, 1280, 720), 1.0);
         assert!(
             small.0 >= -1256
-                && small.1 >= 24
+                && small.1 >= 50
                 && small.0 + small.2 as i32 <= -24
-                && small.1 + small.3 as i32 <= 688
+                && small.1 + small.3 as i32 <= 670
         );
     }
 
@@ -512,7 +514,7 @@ mod tests {
 
     #[test]
     fn defaults_are_the_documented_window_size() {
-        assert_eq!((DEFAULT_WIDTH, DEFAULT_HEIGHT), (1060, 600));
+        assert_eq!((DEFAULT_WIDTH, DEFAULT_HEIGHT), (1146, 715));
     }
 
     #[test]

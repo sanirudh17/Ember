@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "Ember",
-        "width": 1060,
-        "height": 600,
+        "width": 1146,
+        "height": 715,
         "minWidth": 760,
         "minHeight": 520,
         "resizable": true,

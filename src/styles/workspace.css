@@ -316,16 +316,16 @@
 
 /* Awake page vertical rhythm refinement ONLY (header -> dashboard -> policies -> sessions). */
 .page--awake.awake-workspace {
-  padding: clamp(24px, 3.6vh, 42px) clamp(26px, 3.2vw, 48px) 32px;
+  padding: clamp(32px, 4.6vh, 48px) clamp(32px, 3.6vw, 52px) 36px;
 }
 
 .page--awake .hold-surface {
-  padding: 0 0 clamp(22px, 3vh, 32px);
-  gap: 24px;
+  padding: 0 0 clamp(30px, 4.4vh, 44px);
+  gap: 28px;
 }
 
 .page--awake .hold-surface .state__sub {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .page--awake .hold-toolbar {
@@ -337,7 +337,7 @@
 }
 
 .page--awake .awake-summary {
-  padding: 19px 24px;
+  padding: 22px 26px;
   margin-bottom: 0;
   gap: 24px;
 }
@@ -347,8 +347,8 @@
 }
 
 .page--awake .awake-automation {
-  padding: clamp(24px, 3.2vh, 34px) 0 clamp(24px, 3.2vh, 36px);
-  gap: 36px;
+  padding: clamp(32px, 4.6vh, 46px) 0 clamp(34px, 4.8vh, 48px);
+  gap: 44px;
 }
 
 .page--awake .automation-option__copy .ctrl__hint {
@@ -356,11 +356,11 @@
 }
 
 .page--awake .awake-sessions {
-  padding-top: clamp(22px, 3vh, 32px);
+  padding-top: clamp(30px, 4.2vh, 42px);
 }
 
 .page--awake .active-session-list {
-  margin-top: 12px;
+  margin-top: 16px;
 }
 
 .page--awake .active-session {
@@ -368,22 +368,22 @@
 }
 
 .page--awake .awake-empty {
-  margin-top: 16px;
+  margin-top: 18px;
 }
 
 @media (min-width: 1300px) and (min-height: 800px) {
-  .page--awake.awake-workspace { padding-top: 4.5vh; }
-  .page--awake .hold-surface { padding-bottom: 4vh; }
-  .page--awake .awake-summary { padding: 22px 26px; }
-  .page--awake .awake-automation { padding: 4vh 0; }
-  .page--awake .awake-sessions { padding-top: 3.5vh; }
+  .page--awake.awake-workspace { padding-top: 5.5vh; }
+  .page--awake .hold-surface { padding-bottom: 5vh; }
+  .page--awake .awake-summary { padding: 24px 28px; }
+  .page--awake .awake-automation { padding: 5vh 0; }
+  .page--awake .awake-sessions { padding-top: 4.5vh; }
 }
 
 @media (max-width: 960px) {
-  .page--awake .hold-surface { display: block; padding-bottom: 20px; }
+  .page--awake .hold-surface { display: block; padding-bottom: 24px; }
   .page--awake .hold-toolbar { margin-top: 18px; width: fit-content; max-width: 100%; }
-  .page--awake .awake-automation { grid-template-columns: 1fr; gap: 20px; padding: 20px 0 22px; }
-  .page--awake .awake-sessions { padding-top: 20px; }
+  .page--awake .awake-automation { grid-template-columns: 1fr; gap: 22px; padding: 26px 0 28px; }
+  .page--awake .awake-sessions { padding-top: 24px; }
 }
 
 @media (max-width: 1100px) and (min-width: 961px) {
