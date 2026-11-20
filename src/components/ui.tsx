@@ -122,7 +122,7 @@ export function Segmented<T extends string>({
         ) {
           return prev;
         }
-        return { left, width, ready: true, animate };
+        return { left, width, ready: true, animate: prev.ready && animate };
       });
     },
     [activeIndex],

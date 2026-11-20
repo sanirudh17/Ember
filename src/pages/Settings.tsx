@@ -1,6 +1,6 @@
 /**
- * Settings — minimal, calm preference ledger with subtle Solid Glass controls
- * and hardware-accelerated sliding segmented selectors.
+ * Settings — Linear / Apple Notes minimal ledger: clear labels, zero fluff,
+ * smooth sliding segmented controls.
  */
 
 import { useEffect, useState } from "react";
@@ -49,7 +49,7 @@ function parseLog(text: string): LogLine[] {
     });
 }
 
-export function SettingsPage() {
+export function SettingsPage({ active }: { active: boolean }) {
   const { snapshot, settings } = useReady();
   const {
     apply,
@@ -64,6 +64,7 @@ export function SettingsPage() {
   const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     const pull = () => {
       api
@@ -79,7 +80,7 @@ export function SettingsPage() {
       alive = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [active]);
 
   useEffect(() => {
     void api
@@ -88,29 +89,25 @@ export function SettingsPage() {
       .catch(() => {});
   }, []);
 
-  const updateHint = updateError
+  const updateStatus = updateError
     ? updateError
     : update
-      ? `Version ${update.version} is ready to install. Ember restarts to finish.`
+      ? `v${update.version} available`
       : updateChecking
-        ? "Checking GitHub for a newer release…"
-        : "You're on the latest version. Ember checks GitHub automatically.";
+        ? "Checking…"
+        : "Up to date";
 
   return (
     <div className="page page--settings">
-      <header className="pagehead pagehead--stack">
+      <header className="pagehead">
         <h1 className="h1">Settings</h1>
-        <p className="pagehead__sub">Preferences for your everyday workflow.</p>
       </header>
 
       <section className="settings-group">
         <h2 className="h2">General</h2>
         <div className="settings-rows">
           <div className="srow">
-            <div className="srow__copy">
-              <div className="srow__label">Launch at login</div>
-              <div className="srow__hint">Start Ember automatically when you sign in to Windows.</div>
-            </div>
+            <span className="srow__label">Launch at login</span>
             <Switch
               label="Launch at login"
               checked={settings.launch_at_login}
@@ -118,10 +115,7 @@ export function SettingsPage() {
             />
           </div>
           <div className="srow">
-            <div className="srow__copy">
-              <div className="srow__label">Appearance</div>
-              <div className="srow__hint">Follow Windows, or hold the interface light or dark.</div>
-            </div>
+            <span className="srow__label">Appearance</span>
             <Segmented
               label="Appearance"
               value={settings.theme}
@@ -130,12 +124,7 @@ export function SettingsPage() {
             />
           </div>
           <div className="srow">
-            <div className="srow__copy">
-              <div className="srow__label">Notifications</div>
-              <div className="srow__hint">
-                Show a toast and chime when Ember takes hold or lets go.
-              </div>
-            </div>
+            <span className="srow__label">Notifications</span>
             <Switch
               label="Notifications"
               checked={!settings.notifications.mute}
@@ -151,12 +140,7 @@ export function SettingsPage() {
         <h2 className="h2">Power &amp; display</h2>
         <div className="settings-rows">
           <div className="srow">
-            <div className="srow__copy">
-              <div className="srow__label">Battery floor</div>
-              <div className="srow__hint">
-                Release holds automatically when unplugged below this level.
-              </div>
-            </div>
+            <span className="srow__label">Battery floor</span>
             <Segmented
               label="Battery floor"
               value={String(settings.battery_floor_percent)}
@@ -165,12 +149,7 @@ export function SettingsPage() {
             />
           </div>
           <div className="srow">
-            <div className="srow__copy">
-              <div className="srow__label">Require charger for lid hold</div>
-              <div className="srow__hint">
-                Only override the lid-close action while connected to power.
-              </div>
-            </div>
+            <span className="srow__label">Require charger for lid hold</span>
             <Switch
               label="Require charger for lid hold"
               checked={settings.require_charger_for_lid}
@@ -178,12 +157,7 @@ export function SettingsPage() {
             />
           </div>
           <div className="srow">
-            <div className="srow__copy">
-              <div className="srow__label">Keep screen on for agents</div>
-              <div className="srow__hint">
-                Keep the display lit during agent holds; manual holds always keep it lit.
-              </div>
-            </div>
+            <span className="srow__label">Keep screen on for agents</span>
             <Switch
               label="Keep screen on for agents"
               checked={settings.keep_display_on}
@@ -193,11 +167,9 @@ export function SettingsPage() {
         </div>
 
         <p className="policy-foot">
-          Battery Saver always takes priority · Closed-lid holds cap at {snapshot.lid.cap_hours}{" "}
-          hours
-          {snapshot.capabilities.modern_standby
-            ? " · Modern Standby limits battery-powered holds"
-            : ""}
+          Manual holds keep the screen on · Battery Saver takes priority · {snapshot.lid.cap_hours}h
+          lid cap
+          {snapshot.capabilities.modern_standby ? " · Modern Standby limits battery holds" : ""}
         </p>
       </section>
 
@@ -205,9 +177,11 @@ export function SettingsPage() {
         <h2 className="h2">Updates</h2>
         <div className="settings-rows">
           <div className="srow">
-            <div className="srow__copy">
-              <div className="srow__label">Ember{version ? ` v${version}` : ""}</div>
-              <div className={`srow__hint${updateError ? " is-error" : ""}`}>{updateHint}</div>
+            <div className="srow__inline">
+              <span className="srow__label">Ember{version ? ` v${version}` : ""}</span>
+              <span className={`srow__status${updateError ? " is-error" : ""}`}>
+                {updateStatus}
+              </span>
             </div>
             {update ? (
               <Button
@@ -230,9 +204,8 @@ export function SettingsPage() {
 
       <details className="diagnostics">
         <summary>Recent activity</summary>
-        <p className="diagnostics__meta">The last decisions from the engine, oldest first.</p>
         {log.length > 0 ? (
-          <div className="log glass-pane">
+          <div className="log surface-pane surface-pane--subtle">
             {log.map((line, index) => (
               <div className="log__line" key={index}>
                 {line.t && <span className="log__t">{line.t}</span>}
@@ -241,7 +214,7 @@ export function SettingsPage() {
             ))}
           </div>
         ) : (
-          <div className="empty-state">No recent activity yet.</div>
+          <div className="empty-state">No recent activity</div>
         )}
       </details>
     </div>

@@ -1,5 +1,5 @@
 /**
- * Agents — detected coding tools, hook integrations, and live sessions.
+ * Agents — calm, low-noise table of detected coding tools, hook status, and live sessions.
  */
 
 import { useEffect, useState } from "react";
@@ -99,10 +99,7 @@ export function AgentsPage() {
   return (
     <div className="page page--agents">
       <header className="pagehead">
-        <div>
-          <h1 className="h1">Agents</h1>
-          <p className="pagehead__sub">Your coding tools, connected to Ember.</p>
-        </div>
+        <h1 className="h1">Agents</h1>
         <Button variant="quiet" size="sm" onClick={() => void api.refreshAgents()}>
           Rescan
         </Button>
@@ -113,7 +110,7 @@ export function AgentsPage() {
           <div className="sechead__title">
             <h2 className="h2">Watching</h2>
             <span className="count-pill">
-              {detectedCount} of {snapshot.agents.length} detected
+              {detectedCount} of {snapshot.agents.length}
             </span>
           </div>
         </div>
@@ -125,7 +122,7 @@ export function AgentsPage() {
         )}
 
         {detectedCount > 0 ? (
-          <div className="table-pane glass-pane">
+          <div className="table-pane surface-pane surface-pane--subtle">
             <table className="table">
               <thead>
                 <tr>
@@ -136,67 +133,69 @@ export function AgentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {snapshot.agents.map((a) => (
-                  <tr key={a.id} className={!a.detected ? "row--muted" : undefined}>
-                    <td>
-                      <span className="agent-cell">
-                        <AgentIcon agent={a.id} monogram={a.monogram} size={19} />
-                        <span className="agent-cell__name">{a.name}</span>
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className={`integration-status${
-                          a.needs_repair
-                            ? " is-warn"
-                            : a.installed
-                              ? " is-ok"
-                              : !a.detected
-                                ? " is-missing"
-                                : ""
-                        }`}
-                      >
-                        {!a.detected
-                          ? "Not found"
-                          : a.needs_repair
-                            ? "Needs repair"
-                            : a.installed
-                              ? "Hooks installed"
-                              : a.supported
-                                ? "Hooks available"
-                                : "Process watch"}
-                      </span>
-                    </td>
-                    <td className="num">
-                      {a.detected && a.last_event_unix ? relativeTime(a.last_event_unix) : "—"}
-                    </td>
-                    <td className="col-action">
-                      {a.detected && a.supported ? (
-                        <Button
-                          size="sm"
-                          variant={a.needs_repair ? "primary" : "quiet"}
-                          disabled={loading}
-                          onClick={() =>
-                            openPreview(
-                              a.id as AgentId,
-                              a.installed && !a.needs_repair ? "remove" : "install",
-                            )
-                          }
-                        >
-                          {a.installed ? (a.needs_repair ? "Repair" : "Remove") : "Install hooks"}
-                        </Button>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
+                {snapshot.agents.map((a) => {
+                  const statusTone = !a.detected
+                    ? "missing"
+                    : a.needs_repair
+                      ? "warn"
+                      : a.installed
+                        ? "ok"
+                        : "neutral";
+                  return (
+                    <tr key={a.id} className={!a.detected ? "row--muted" : undefined}>
+                      <td>
+                        <span className="agent-cell">
+                          <AgentIcon agent={a.id} monogram={a.monogram} size={18} />
+                          <span className="agent-cell__name">{a.name}</span>
+                        </span>
+                      </td>
+                      <td>
+                        <span className="integration-cell">
+                          <span
+                            className={`idot idot--${statusTone}`}
+                            aria-hidden="true"
+                          />
+                          <span className="integration-label">
+                            {!a.detected
+                              ? "Not found"
+                              : a.needs_repair
+                                ? "Needs repair"
+                                : a.installed
+                                  ? "Installed"
+                                  : a.supported
+                                    ? "Available"
+                                    : "Process watch"}
+                          </span>
+                        </span>
+                      </td>
+                      <td className="num">
+                        {a.detected && a.last_event_unix ? relativeTime(a.last_event_unix) : "—"}
+                      </td>
+                      <td className="col-action">
+                        {a.detected && a.supported ? (
+                          <Button
+                            size="sm"
+                            variant="quiet"
+                            disabled={loading}
+                            onClick={() =>
+                              openPreview(
+                                a.id as AgentId,
+                                a.installed && !a.needs_repair ? "remove" : "install",
+                              )
+                            }
+                          >
+                            {a.installed ? (a.needs_repair ? "Repair" : "Remove") : "Install"}
+                          </Button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         ) : (
-          <div className="empty-state">
-            <span>No coding tools detected</span>
-            <small>Install a supported agent, then click Rescan.</small>
-          </div>
+          <div className="empty-state">No agents detected</div>
         )}
       </section>
 
@@ -209,13 +208,13 @@ export function AgentsPage() {
                 ? `${working} working · ${idle} idle`
                 : sessions.length > 0
                   ? `${idle} idle`
-                  : "Nothing running"}
+                  : "None"}
             </span>
           </div>
         </div>
 
         {sessions.length > 0 ? (
-          <div className="table-pane glass-pane">
+          <div className="table-pane surface-pane surface-pane--subtle">
             <table className="table">
               <thead>
                 <tr>
@@ -235,7 +234,7 @@ export function AgentsPage() {
                     >
                       <td>
                         <span className="agent-cell">
-                          <AgentIcon agent={s.agent} monogram={s.monogram} size={17} />
+                          <AgentIcon agent={s.agent} monogram={s.monogram} size={16} />
                           <span className="agent-cell__name">{s.agent_name}</span>
                         </span>
                       </td>
@@ -257,7 +256,7 @@ export function AgentsPage() {
             </table>
           </div>
         ) : (
-          <div className="empty-state">Nothing is running right now.</div>
+          <div className="empty-state">No open sessions</div>
         )}
       </section>
 
@@ -275,7 +274,7 @@ export function AgentsPage() {
             {result ? (
               <>
                 <h3 className="dialog__title" id="agents-dialog-title">
-                  Done.
+                  Done
                 </h3>
                 <p className="dialog__text">{result.message}</p>
                 <div className="dialog__actions">
@@ -287,7 +286,7 @@ export function AgentsPage() {
             ) : (
               <>
                 <h3 className="dialog__title" id="agents-dialog-title">
-                  {target?.op === "install" ? "Install" : "Remove"} {preview.name} hooks?
+                  {target?.op === "install" ? "Install" : "Remove"} {preview.name} hooks
                 </h3>
                 <p className="dialog__text">{preview.summary}</p>
                 {preview.file && <p className="dialog__path">{preview.file}</p>}
@@ -317,11 +316,7 @@ export function AgentsPage() {
                     Cancel
                   </Button>
                   <Button variant="primary" disabled={busy} onClick={() => void apply()}>
-                    {busy
-                      ? "Working…"
-                      : target?.op === "install"
-                        ? "Install hooks"
-                        : "Remove"}
+                    {busy ? "Working…" : target?.op === "install" ? "Install" : "Remove"}
                   </Button>
                 </div>
               </>

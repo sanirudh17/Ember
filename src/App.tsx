@@ -1,9 +1,6 @@
 /**
  * The shell: top bar, one scrolled content area, frameless resize strips,
- * and the close dialog.
- *
- * Routing is three local screens kept in the URL query so a browser reload
- * (or the inspector) lands on the same screen.
+ * and the close dialog. All three screens stay mounted so tab switches are instant.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -37,17 +34,20 @@ export function App() {
 
   useEffect(() => {
     if (!IS_TAURI || revealed.current || (!ready && loading)) return;
-    // Two frames let the theme and the initial surface reach the compositor.
     let second = 0;
     const first = requestAnimationFrame(() => {
       second = requestAnimationFrame(() => {
-        void api.showWindow().then(() => { revealed.current = true; });
+        void api.showWindow().then(() => {
+          revealed.current = true;
+        });
       });
     });
-    return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); };
+    return () => {
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
   }, [ready, loading]);
 
-  // Keep the URL in step so a reload lands on the same screen.
   useEffect(() => {
     const url = new URL(window.location.href);
     if (route === "awake") url.searchParams.delete("route");
@@ -55,7 +55,6 @@ export function App() {
     window.history.replaceState(null, "", url);
   }, [route]);
 
-  // Each screen starts at the top when switching routes.
   useEffect(() => {
     contentRef.current?.scrollTo({ top: 0 });
   }, [route]);
@@ -72,10 +71,16 @@ export function App() {
               <PageError message={error ?? "The engine did not answer."} onRetry={reload} />
             )
           ) : (
-            <ErrorBoundary key={route}>
-              {route === "awake" && <HomePage onViewAgents={() => setRoute("agents")} />}
-              {route === "agents" && <AgentsPage />}
-              {route === "settings" && <SettingsPage />}
+            <ErrorBoundary>
+              <div className="route-pane" hidden={route !== "awake"}>
+                <HomePage onViewAgents={() => setRoute("agents")} />
+              </div>
+              <div className="route-pane" hidden={route !== "agents"}>
+                <AgentsPage />
+              </div>
+              <div className="route-pane" hidden={route !== "settings"}>
+                <SettingsPage active={route === "settings"} />
+              </div>
             </ErrorBoundary>
           )}
         </main>

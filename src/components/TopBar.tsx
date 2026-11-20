@@ -1,11 +1,10 @@
 /**
- * Unified window chrome: frameless title bar + quiet navigation sidebar.
+ * Unified window chrome: frameless title bar + quiet Linear-style navigation sidebar.
  */
 
 import { useEffect, useState } from "react";
-import { Copy, Minus, Square, X } from "lucide-react";
+import { Copy, Cpu, Flame, Minus, Settings as SettingsIcon, Square, X } from "lucide-react";
 
-import { InterfaceIcon } from "./InterfaceIcon";
 import { api, IS_TAURI } from "../lib/api";
 import { useStore } from "../lib/store";
 
@@ -16,6 +15,23 @@ const LINKS: { id: Route; label: string }[] = [
   { id: "agents", label: "Agents" },
   { id: "settings", label: "Settings" },
 ];
+
+function NavIcon({ id, active }: { id: Route; active: boolean }) {
+  const props = { size: 16, strokeWidth: 1.75, className: "navlink__icon", "aria-hidden": true as const };
+  if (id === "awake") {
+    return (
+      <Flame
+        {...props}
+        fill={active ? "currentColor" : "none"}
+        fillOpacity={active ? 0.18 : 0}
+      />
+    );
+  }
+  if (id === "agents") {
+    return <Cpu {...props} />;
+  }
+  return <SettingsIcon {...props} />;
+}
 
 export function TopBar({
   route,
@@ -51,8 +67,8 @@ export function TopBar({
         <div className="topbar__lead" data-tauri-drag-region>
           <img
             src={new URL("../assets/ember.png", import.meta.url).href}
-            width="22"
-            height="22"
+            width="20"
+            height="20"
             alt=""
           />
           <span className="topbar__name">Ember</span>
@@ -66,7 +82,7 @@ export function TopBar({
             title={`Ember ${update.version} is ready to install`}
             onClick={() => onNavigate("settings")}
           >
-            Update v{update.version}
+            <span className="control-label">Update v{update.version}</span>
           </button>
         )}
         <button
@@ -75,7 +91,7 @@ export function TopBar({
           aria-label="Minimize"
           onClick={() => control("minimize")}
         >
-          <Minus size={14} />
+          <Minus size={14} strokeWidth={1.75} />
         </button>
         <button
           type="button"
@@ -83,7 +99,7 @@ export function TopBar({
           aria-label={maximized ? "Restore" : "Maximize"}
           onClick={() => control("toggle_maximize")}
         >
-          {maximized ? <Copy size={12.5} /> : <Square size={11.5} />}
+          {maximized ? <Copy size={12.5} strokeWidth={1.75} /> : <Square size={11.5} strokeWidth={1.75} />}
         </button>
         <button
           type="button"
@@ -91,24 +107,27 @@ export function TopBar({
           aria-label="Close"
           onClick={() => control("close")}
         >
-          <X size={14.5} />
+          <X size={14.5} strokeWidth={1.75} />
         </button>
       </header>
 
       <aside className="sidebar">
         <nav className="sidebar__nav" aria-label="Primary">
-          {LINKS.map((link) => (
-            <button
-              key={link.id}
-              type="button"
-              className={`navlink${route === link.id ? " is-active" : ""}`}
-              aria-current={route === link.id ? "page" : undefined}
-              onClick={() => onNavigate(link.id)}
-            >
-              <InterfaceIcon name={link.id} size={17} />
-              <span>{link.label}</span>
-            </button>
-          ))}
+          {LINKS.map((link) => {
+            const active = route === link.id;
+            return (
+              <button
+                key={link.id}
+                type="button"
+                className={`navlink${active ? " is-active" : ""}`}
+                aria-current={active ? "page" : undefined}
+                onClick={() => onNavigate(link.id)}
+              >
+                <NavIcon id={link.id} active={active} />
+                <span className="control-label">{link.label}</span>
+              </button>
+            );
+          })}
         </nav>
 
         <div className="sidebar__status">
