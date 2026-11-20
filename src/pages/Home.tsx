@@ -85,30 +85,48 @@ function stateCopy(s: Snapshot): StateCopy {
   };
 }
 
-function readings(s: Snapshot): { k: string; v: string }[] {
+type ReadingTone = "default" | "accent" | "ok" | "warn" | "muted";
+
+function readings(s: Snapshot): { k: string; v: string; tone: ReadingTone }[] {
   const battery = !s.battery.present
     ? "AC power"
     : `${s.battery.percent ?? "—"}% · ${s.battery.plugged_in ? "Plugged in" : "On battery"}${
         s.battery.saver_on ? " · Saver" : ""
       }`;
+  const batteryTone: ReadingTone = !s.battery.present
+    ? "ok"
+    : s.battery.saver_on || (s.battery.percent !== null && s.battery.percent <= s.settings.battery_floor_percent)
+      ? "warn"
+      : s.battery.plugged_in
+        ? "ok"
+        : "default";
+
   const lid = s.lid.held
     ? `${duration(s.lid.held_secs)} of ${s.lid.cap_hours}h`
     : s.lid.proof_enabled
       ? "Armed"
       : "Off";
+  const lidTone: ReadingTone = s.lid.held ? "accent" : s.lid.proof_enabled ? "ok" : "muted";
+
+  const holding = s.engaged || s.want_awake;
   return [
     {
       k: s.manual.active && !s.manual.unlimited ? "Remaining" : "Held for",
       v:
         s.manual.active && !s.manual.unlimited
           ? s.manual.countdown
-          : s.engaged || s.want_awake
+          : holding
             ? duration(s.engaged_for_secs)
             : "—",
+      tone: holding ? "accent" : "muted",
     },
-    { k: "Agents", v: `${s.agents_working} working · ${s.watched_agents} watched` },
-    { k: "Battery", v: battery },
-    { k: "Lid hold", v: lid },
+    {
+      k: "Agents",
+      v: `${s.agents_working} working · ${s.watched_agents} watched`,
+      tone: s.agents_working > 0 ? "ok" : "default",
+    },
+    { k: "Battery", v: battery, tone: batteryTone },
+    { k: "Lid hold", v: lid, tone: lidTone },
   ];
 }
 
@@ -130,7 +148,7 @@ export function HomePage({ onViewAgents }: { onViewAgents: () => void }) {
     );
 
   return (
-    <div className="page page--awake">
+    <div className={`page page--awake${snapshot.engaged ? " is-engaged" : ""}`}>
       <section
         className={`hold-band${snapshot.engaged ? " is-engaged" : ""}`}
         aria-label="Current hold"
@@ -198,7 +216,7 @@ export function HomePage({ onViewAgents }: { onViewAgents: () => void }) {
 
       <section className="readout-panel surface-pane" aria-label="Hold and device status">
         {rows.map((row) => (
-          <div className="readout-cell" key={row.k}>
+          <div className={`readout-cell readout-cell--${row.tone}`} key={row.k}>
             <span className="readout-cell__k">{row.k}</span>
             <strong className="readout-cell__v">{row.v}</strong>
           </div>

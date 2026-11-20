@@ -12,7 +12,7 @@ import {
   useState,
 } from "react";
 
-type ButtonVariant = "primary" | "quiet" | "ghost";
+type ButtonVariant = "primary" | "quiet" | "ghost" | "tint";
 
 export function Button({
   variant = "quiet",

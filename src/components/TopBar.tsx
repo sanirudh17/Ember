@@ -3,7 +3,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Copy, Cpu, Flame, Minus, Settings as SettingsIcon, Square, X } from "lucide-react";
+import { Copy, Flame, Minus, Settings as SettingsIcon, Square, SquareTerminal, X } from "lucide-react";
 
 import { api, IS_TAURI } from "../lib/api";
 import { useStore } from "../lib/store";
@@ -28,7 +28,13 @@ function NavIcon({ id, active }: { id: Route; active: boolean }) {
     );
   }
   if (id === "agents") {
-    return <Cpu {...props} />;
+    return (
+      <SquareTerminal
+        {...props}
+        fill={active ? "currentColor" : "none"}
+        fillOpacity={active ? 0.14 : 0}
+      />
+    );
   }
   return <SettingsIcon {...props} />;
 }

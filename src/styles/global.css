@@ -1,7 +1,8 @@
-/* Ember — Linear / Apple Notes desktop design system.
-   Calm, balanced contrast in both themes; uniform 1px hairlines (zero uneven
-   top bevels); exact integer geometry for switches, sidebar pills, and buttons;
-   whisper-faint merged scrollbars; instant zero-latency route switching. */
+/* Ember — High-craft Linear / Apple Notes desktop design system.
+   Goldilocks contrast in Dark & Light; clear 3-tier typographic hierarchy;
+   uniform 1px hairlines (zero uneven top bevels); intentional semantic color
+   pops on Awake & Agents; zero per-row line clutter in Settings; whisper-faint
+   merged scrollbars; instant zero-latency route switching. */
 
 @font-face {
   font-family: "Archivo";
@@ -21,7 +22,7 @@
   --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
 
   --radius-sheet: 10px;
-  --radius-panel: 9px;
+  --radius-panel: 10px;
   --radius-control: 6px;
   --radius-thumb: 5px;
   --radius-pill: 999px;
@@ -33,99 +34,109 @@
   color-scheme: dark;
 }
 
-/* Dark theme — calm Linear charcoal spectrum (no harsh glare or thick bevels) */
+/* Dark theme — rich obsidian chrome, satin slate sheet, crisp elevated panes */
 :root,
 :root[data-theme="dark"] {
-  --chrome: #0d0e11;
-  --canvas: #14161b;
-  --canvas-border: rgba(255, 255, 255, 0.068);
+  --chrome: #090a0d;
+  --canvas: #13161c;
+  --canvas-border: rgba(255, 255, 255, 0.085);
 
-  --surface: #191c22;
-  --surface-subtle: #171a20;
-  --control: #21252e;
-  --control-hover: #2a2f3a;
-  --nav-active: #20242c;
-  --popover: #1a1d24;
+  --surface: #1b1f28;
+  --surface-subtle: #181c24;
+  --control: #252b37;
+  --control-hover: #2f3746;
+  --nav-active: #202530;
+  --popover: #1b1f28;
 
-  --well: #0f1115;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-strong: rgba(255, 255, 255, 0.125);
-  --divider: rgba(255, 255, 255, 0.065);
+  --well: #0d1015;
+  --border: rgba(255, 255, 255, 0.095);
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.145);
+  --divider: rgba(255, 255, 255, 0.08);
 
-  --ink: #e5e8ee;
-  --ink-secondary: #a1a8b6;
-  --ink-muted: #727b8c;
+  --ink: #f1f4f9;
+  --ink-secondary: #adb6c6;
+  --ink-muted: #7c869a;
 
-  --accent: #e5930b;
-  --accent-hover: #f2a422;
-  --accent-soft: rgba(229, 147, 11, 0.12);
-  --accent-row: rgba(229, 147, 11, 0.065);
-  --accent-border: rgba(229, 147, 11, 0.28);
+  --accent: #f59e0b;
+  --accent-hover: #fbbf24;
+  --accent-soft: rgba(245, 158, 11, 0.13);
+  --accent-row: rgba(245, 158, 11, 0.085);
+  --accent-border: rgba(245, 158, 11, 0.34);
+  --accent-aura: rgba(245, 158, 11, 0.085);
+  --accent-halo: rgba(245, 158, 11, 0.22);
   --accent-ink: #180f02;
 
-  --ok: #3fb984;
-  --warn: #d99326;
-  --danger: #e57373;
+  --ok: #34d399;
+  --ok-soft: rgba(52, 211, 153, 0.12);
+  --ok-border: rgba(52, 211, 153, 0.26);
+  --warn: #f59e0b;
+  --danger: #f87171;
 
-  --switch-off: #272c36;
-  --switch-off-hover: #313744;
-  --knob: #f2f4f8;
-  --knob-shadow: 0 1px 2px rgba(0, 0, 0, 0.32);
-  --control-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
-  --scrim: rgba(6, 7, 10, 0.62);
-  --dialog-shadow: 0 20px 52px -12px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --switch-off: #2b3240;
+  --switch-off-hover: #363f50;
+  --knob: #f6f8fc;
+  --knob-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --pane-shadow: 0 4px 18px -10px rgba(0, 0, 0, 0.55);
+  --control-shadow: 0 1px 2px rgba(0, 0, 0, 0.26);
+  --scrim: rgba(5, 6, 10, 0.66);
+  --dialog-shadow: 0 22px 54px -12px rgba(0, 0, 0, 0.72), 0 2px 10px rgba(0, 0, 0, 0.4);
   --scroll-rest: rgba(255, 255, 255, 0.06);
-  --scroll-hover: rgba(255, 255, 255, 0.18);
-  --scroll-active: rgba(255, 255, 255, 0.32);
+  --scroll-hover: rgba(255, 255, 255, 0.2);
+  --scroll-active: rgba(255, 255, 255, 0.36);
 
   color-scheme: dark;
 }
 
-/* Light theme — soft Apple Notes / Linear daylight tones (calm, never jarring) */
+/* Light theme — distinct slate-stone chrome, soft alabaster sheet, crisp white panes */
 :root[data-theme="light"] {
-  --chrome: #eceef2;
-  --canvas: #fbfbfc;
-  --canvas-border: rgba(31, 35, 40, 0.085);
+  --chrome: #e1e5ee;
+  --canvas: #f5f7fa;
+  --canvas-border: rgba(15, 23, 42, 0.11);
 
-  --surface: #f4f5f8;
-  --surface-subtle: #f6f7f9;
+  --surface: #ffffff;
+  --surface-subtle: #fcfcfd;
   --control: #ffffff;
-  --control-hover: #f7f8fa;
+  --control-hover: #f3f5f9;
   --nav-active: #ffffff;
   --popover: #ffffff;
 
-  --well: #e9ecf1;
-  --border: rgba(31, 35, 40, 0.095);
-  --border-subtle: rgba(31, 35, 40, 0.075);
-  --border-strong: rgba(31, 35, 40, 0.145);
-  --divider: rgba(31, 35, 40, 0.075);
+  --well: #e5e9f2;
+  --border: rgba(15, 23, 42, 0.105);
+  --border-subtle: rgba(15, 23, 42, 0.085);
+  --border-strong: rgba(15, 23, 42, 0.16);
+  --divider: rgba(15, 23, 42, 0.085);
 
-  --ink: #24292f;
-  --ink-secondary: #57606a;
-  --ink-muted: #76808b;
+  --ink: #181d25;
+  --ink-secondary: #4a5464;
+  --ink-muted: #697486;
 
-  --accent: #c45b08;
-  --accent-hover: #ae4f06;
-  --accent-soft: rgba(196, 91, 8, 0.09);
-  --accent-row: rgba(196, 91, 8, 0.055);
-  --accent-border: rgba(196, 91, 8, 0.24);
+  --accent: #d96406;
+  --accent-hover: #bf5604;
+  --accent-soft: rgba(217, 100, 6, 0.1);
+  --accent-row: rgba(217, 100, 6, 0.065);
+  --accent-border: rgba(217, 100, 6, 0.3);
+  --accent-aura: rgba(217, 100, 6, 0.06);
+  --accent-halo: rgba(217, 100, 6, 0.2);
   --accent-ink: #ffffff;
 
-  --ok: #267f53;
-  --warn: #b36b08;
-  --danger: #b93838;
+  --ok: #15803d;
+  --ok-soft: rgba(21, 128, 61, 0.09);
+  --ok-border: rgba(21, 128, 61, 0.22);
+  --warn: #c45b08;
+  --danger: #dc2626;
 
-  --switch-off: #cfd5df;
-  --switch-off-hover: #c1c8d5;
+  --switch-off: #c8d0de;
+  --switch-off-hover: #b8c2d3;
   --knob: #ffffff;
-  --knob-shadow: 0 1px 2px rgba(31, 35, 40, 0.18);
-  --control-shadow: 0 1px 2px rgba(31, 35, 40, 0.05);
-  --scrim: rgba(31, 35, 40, 0.28);
-  --dialog-shadow: 0 20px 48px -12px rgba(31, 35, 40, 0.18), 0 2px 8px rgba(31, 35, 40, 0.08);
-  --scroll-rest: rgba(31, 35, 40, 0.07);
-  --scroll-hover: rgba(31, 35, 40, 0.2);
-  --scroll-active: rgba(31, 35, 40, 0.34);
+  --knob-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+  --pane-shadow: 0 2px 10px -6px rgba(15, 23, 42, 0.1);
+  --control-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --scrim: rgba(15, 23, 42, 0.3);
+  --dialog-shadow: 0 20px 50px -12px rgba(15, 23, 42, 0.2), 0 2px 10px rgba(15, 23, 42, 0.08);
+  --scroll-rest: rgba(15, 23, 42, 0.07);
+  --scroll-hover: rgba(15, 23, 42, 0.22);
+  --scroll-active: rgba(15, 23, 42, 0.38);
 
   color-scheme: light;
 }
@@ -176,8 +187,8 @@ img {
   display: block;
 }
 
-/* Intentionally omit standard scrollbar-width/color so WebView2 honors ::-webkit-scrollbar
-   with zero native arrow buttons and a whisper-faint thumb merged into the sheet. */
+/* Omit standard scrollbar-width/color so WebView2 renders whisper-faint custom
+   scrollbars with zero native Windows arrow buttons. */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -212,18 +223,20 @@ img {
 }
 
 /* ------------------------------------------------------------------ */
-/* Clean uniform surface panes (zero uneven top bevels)               */
+/* Crisp uniform surface panes (zero uneven top bevels)               */
 /* ------------------------------------------------------------------ */
 
 .surface-pane {
   background-color: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-panel);
+  box-shadow: var(--pane-shadow);
 }
 
 .surface-pane--subtle {
   background-color: var(--surface-subtle);
   border-color: var(--border-subtle);
+  box-shadow: none;
 }
 
 /* ------------------------------------------------------------------ */
@@ -233,7 +246,7 @@ img {
 .app {
   height: 100%;
   display: grid;
-  grid-template-columns: 166px minmax(0, 1fr);
+  grid-template-columns: 168px minmax(0, 1fr);
   grid-template-rows: 44px minmax(0, 1fr);
   background: var(--chrome);
   overflow: hidden;
@@ -290,7 +303,7 @@ img {
   border: 1px solid var(--accent-border);
   border-radius: var(--radius-pill);
   background: var(--accent-soft);
-  color: var(--ink);
+  color: var(--accent);
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
@@ -299,7 +312,7 @@ img {
 }
 
 .tb-update:hover {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
   border-color: var(--accent);
 }
 
@@ -338,7 +351,7 @@ img {
 
 .sidebar__nav {
   display: grid;
-  gap: 2px;
+  gap: 3px;
 }
 
 .navlink {
@@ -396,21 +409,22 @@ img {
   gap: 8px;
   margin-top: auto;
   padding: 10px 11px 2px;
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
   font-size: 12px;
 }
 
 .sidebar__signal {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--ink-muted);
   flex: none;
-  transition: background-color 220ms ease;
+  transition: background-color 220ms ease, box-shadow 220ms ease;
 }
 
 .sidebar__signal.is-awake {
   background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-halo);
 }
 
 .sidebar__state {
@@ -464,7 +478,7 @@ img {
 .resize-handle--sw { bottom: 0; left: 0; width: 12px; height: 12px; cursor: nesw-resize; }
 
 /* ------------------------------------------------------------------ */
-/* Page rhythm & typography                                           */
+/* Page rhythm & clear 3-tier typography hierarchy                    */
 /* ------------------------------------------------------------------ */
 
 .page {
@@ -478,25 +492,27 @@ img {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: clamp(24px, 3.4vh, 32px);
+  margin-bottom: clamp(26px, 3.6vh, 36px);
 }
 
+/* Authoritative display heading (32px) */
 .h1 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: 32px;
   font-weight: 400;
-  line-height: 1.15;
-  letter-spacing: -0.03em;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
   color: var(--ink);
 }
 
+/* Clear section subheading (16px semibold) */
 .h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   line-height: 1.3;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   color: var(--ink);
 }
 
@@ -505,7 +521,7 @@ img {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .sechead__title {
@@ -521,7 +537,7 @@ img {
 }
 
 .section {
-  margin-top: clamp(26px, 3.6vh, 36px);
+  margin-top: clamp(28px, 3.8vh, 38px);
 }
 
 .section:first-of-type {
@@ -541,7 +557,7 @@ img {
 }
 
 /* ------------------------------------------------------------------ */
-/* Primitives: Cap-centered Labels, Uniform-border Buttons,           */
+/* Primitives: Cap-centered Labels, Uniform Buttons,                  */
 /* Exact-centered Switches, Sliding Segmented Controls                */
 /* ------------------------------------------------------------------ */
 
@@ -593,6 +609,17 @@ img {
   background: var(--accent-hover);
 }
 
+.btn--tint {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.btn--tint:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-color: var(--accent);
+}
+
 .btn--quiet {
   background: var(--control);
   color: var(--ink);
@@ -602,7 +629,7 @@ img {
 
 .btn--quiet:hover:not(:disabled) {
   background: var(--control-hover);
-  border-color: color-mix(in srgb, var(--ink-muted) 36%, var(--border-strong));
+  border-color: color-mix(in srgb, var(--ink-muted) 40%, var(--border-strong));
 }
 
 .btn--ghost {
@@ -627,7 +654,7 @@ img {
   opacity: 0.48;
 }
 
-/* Switch — exact integer geometry: 38x22 borderless track, 16x16 knob = exact 3px ring all sides */
+/* Switch — exact integer geometry: 38x22 borderless track, 16x16 knob = exact 3px ring */
 .switch {
   position: relative;
   width: 38px;
@@ -675,7 +702,7 @@ img {
   transform: translate3d(16px, 0, 0);
 }
 
-/* Sliding Segmented Control — clean well + uniform hairline sliding thumb */
+/* Sliding Segmented Control */
 .seg {
   position: relative;
   display: inline-flex;
@@ -769,16 +796,25 @@ img {
 }
 
 /* ------------------------------------------------------------------ */
-/* Awake (Home) — balanced full-height desktop rhythm                 */
+/* Awake (Home) — balanced desktop rhythm + living semantic accents   */
 /* ------------------------------------------------------------------ */
 
 .page--awake {
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  padding-top: clamp(32px, 5.2vh, 54px);
+  padding-top: clamp(32px, 5vh, 54px);
   padding-bottom: clamp(28px, 4vh, 42px);
   gap: clamp(28px, 4.2vh, 44px);
+}
+
+/* Subtle ambient ember warmth at the top edge only when actively holding awake */
+.page--awake.is-engaged {
+  background-image: radial-gradient(
+    540px 180px at 14% 0%,
+    var(--accent-aura),
+    transparent 72%
+  );
 }
 
 .hold-band {
@@ -795,28 +831,30 @@ img {
 .hold-band__headline {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 12px;
 }
 
 .status-dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: var(--ink-muted);
   flex: none;
-  transition: background-color 220ms ease;
+  transition: background-color 220ms ease, box-shadow 220ms ease;
 }
 
 .status-dot.is-engaged {
   background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-halo);
 }
 
 .status-dot.is-blocked {
   background: var(--danger);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 20%, transparent);
 }
 
 .status-detail {
-  margin: 8px 0 0 19px;
+  margin: 8px 0 0 21px;
   font-size: 13.5px;
   color: var(--ink-secondary);
   line-height: 1.45;
@@ -837,6 +875,10 @@ img {
   color: var(--ink-muted);
 }
 
+.manual-box .btn--quiet:hover:not(:disabled) {
+  border-color: var(--accent-border);
+}
+
 .actions {
   display: flex;
   align-items: center;
@@ -844,7 +886,7 @@ img {
   flex-wrap: wrap;
 }
 
-/* Framed 4-column Dashboard readout rectangle */
+/* Framed 4-column Dashboard readout rectangle with semantic telemetry pops */
 .readout-panel {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -880,7 +922,23 @@ img {
   text-overflow: ellipsis;
 }
 
-/* Automatic policies — clean, self-explanatory 2-column row */
+.readout-cell--accent .readout-cell__v {
+  color: var(--accent);
+}
+
+.readout-cell--ok .readout-cell__v {
+  color: var(--ok);
+}
+
+.readout-cell--warn .readout-cell__v {
+  color: var(--warn);
+}
+
+.readout-cell--muted .readout-cell__v {
+  color: var(--ink-muted);
+}
+
+/* Automatic policies */
 .policy-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -920,12 +978,12 @@ img {
 }
 
 .policy-row__tag {
-  padding: 2px 7px;
+  padding: 2px 8px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border-strong);
   font-size: 11px;
   font-weight: 500;
-  line-height: 1.2;
+  line-height: 1.25;
   color: var(--ink-muted);
 }
 
@@ -947,7 +1005,7 @@ img {
 .session-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .session-row {
@@ -955,13 +1013,10 @@ img {
   grid-template-columns: minmax(150px, 0.34fr) minmax(0, 1fr) auto;
   align-items: center;
   gap: 18px;
-  padding: 12px 12px;
+  padding: 12px 14px;
   border-radius: var(--radius-control);
+  border-left: 2px solid transparent;
   transition: background-color var(--t-fast) ease;
-}
-
-.session-row + .session-row {
-  border-top: 1px solid var(--divider);
 }
 
 .session-row:hover {
@@ -970,6 +1025,7 @@ img {
 
 .session-row.is-working {
   background: var(--accent-row);
+  border-left-color: var(--accent);
 }
 
 .session-row__agent {
@@ -1007,14 +1063,14 @@ img {
 }
 
 .session-row__state.is-working {
-  color: var(--ink);
+  color: var(--accent);
   font-weight: 500;
 }
 
 .sdot {
   display: inline-block;
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--accent);
   flex: none;
@@ -1026,7 +1082,7 @@ img {
 }
 
 /* ------------------------------------------------------------------ */
-/* Agents — calm, low-color tables                                    */
+/* Agents — refined tables with crisp semantic status pills           */
 /* ------------------------------------------------------------------ */
 
 .table-pane {
@@ -1059,7 +1115,7 @@ img {
 }
 
 .table td {
-  padding: 11px 14px;
+  padding: 12px 14px;
   font-size: 13px;
   color: var(--ink-secondary);
   border-bottom: 1px solid var(--divider);
@@ -1119,10 +1175,42 @@ img {
   color: var(--ink-muted);
 }
 
-.integration-cell {
+.status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.status-badge--ok {
+  background: var(--ok-soft);
+  border-color: var(--ok-border);
+  color: var(--ok);
+}
+
+.status-badge--warn {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.status-badge--neutral {
+  background: var(--control);
+  border-color: var(--border);
+  color: var(--ink-secondary);
+}
+
+.status-badge--missing {
+  padding-left: 2px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-weight: 400;
 }
 
 .idot {
@@ -1137,7 +1225,7 @@ img {
 }
 
 .idot--warn {
-  background: var(--warn);
+  background: var(--accent);
 }
 
 .idot--neutral {
@@ -1149,15 +1237,6 @@ img {
   border: 1.5px solid var(--border-strong);
 }
 
-.integration-label {
-  font-size: 13px;
-  color: var(--ink-secondary);
-}
-
-.row--muted .integration-label {
-  color: var(--ink-muted);
-}
-
 .state-cell {
   display: inline-flex;
   align-items: center;
@@ -1165,12 +1244,12 @@ img {
 }
 
 .row--working .state-label {
-  color: var(--ink);
+  color: var(--accent);
   font-weight: 500;
 }
 
 /* ------------------------------------------------------------------ */
-/* Settings — calm minimal Linear / Apple Notes ledger                */
+/* Settings — clear typographic hierarchy, ONE divider per section    */
 /* ------------------------------------------------------------------ */
 
 .page--settings .settings-group,
@@ -1179,24 +1258,28 @@ img {
 }
 
 .settings-group {
-  margin-top: 32px;
-}
-
-.settings-group:first-of-type {
   margin-top: 0;
 }
 
+/* Only ONE crisp hairline divider separating major section headings */
+.settings-group + .settings-group {
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid var(--divider);
+}
+
 .settings-group > .h2 {
-  margin: 0 0 10px;
-  color: var(--ink-muted);
-  font-size: 12px;
+  margin: 0 0 11px;
+  font-size: 16px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  letter-spacing: -0.015em;
+  color: var(--ink);
 }
 
 .settings-rows {
-  border-top: 1px solid var(--divider);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .srow {
@@ -1204,15 +1287,14 @@ img {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  min-height: 52px;
-  padding: 10px 2px;
-  border-bottom: 1px solid var(--divider);
+  min-height: 40px;
+  padding: 5px 2px;
 }
 
 .srow__label {
   font-size: 13.5px;
-  font-weight: 500;
-  color: var(--ink);
+  font-weight: 400;
+  color: var(--ink-secondary);
 }
 
 .srow__inline {
@@ -1232,14 +1314,16 @@ img {
 }
 
 .policy-foot {
-  margin: 10px 2px 0;
+  margin: 12px 2px 0;
   font-size: 12px;
   color: var(--ink-muted);
   line-height: 1.5;
 }
 
 .diagnostics {
-  margin-top: 30px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--divider);
 }
 
 .diagnostics > summary {
@@ -1247,7 +1331,7 @@ img {
   align-items: center;
   gap: 6px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--ink-secondary);
   user-select: none;

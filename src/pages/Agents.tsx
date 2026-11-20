@@ -150,12 +150,9 @@ export function AgentsPage() {
                         </span>
                       </td>
                       <td>
-                        <span className="integration-cell">
-                          <span
-                            className={`idot idot--${statusTone}`}
-                            aria-hidden="true"
-                          />
-                          <span className="integration-label">
+                        <span className={`status-badge status-badge--${statusTone}`}>
+                          <span className={`idot idot--${statusTone}`} aria-hidden="true" />
+                          <span>
                             {!a.detected
                               ? "Not found"
                               : a.needs_repair
@@ -175,7 +172,7 @@ export function AgentsPage() {
                         {a.detected && a.supported ? (
                           <Button
                             size="sm"
-                            variant="quiet"
+                            variant={a.needs_repair ? "tint" : "quiet"}
                             disabled={loading}
                             onClick={() =>
                               openPreview(
