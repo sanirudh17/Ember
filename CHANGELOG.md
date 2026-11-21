@@ -2,6 +2,52 @@
 
 All notable changes to [Ember](https://github.com/sanirudh17/Ember) are documented here.
 
+## [v1.3.0] - 2026-11-21
+
+### Power, Sleep, and Lid-Proof Reliability
+
+- Strengthened Modern Standby (S0 Low Power Idle) power holds by acquiring `PowerRequestSystemRequired` together with best-effort `PowerRequestExecutionRequired`, and acquiring `PowerRequestDisplayRequired` during manual holds so unattended timers and builds do not drop into standby when `VIDEOIDLE` expires.
+- Added monotonic power-request generation tracking and automatic re-assertion on Windows resume, AC/DC transitions, and lid-close events so active holds survive power state changes cleanly.
+- Fixed lid-close policy restoration in `lid::restore_at()` to call `PowerSetActiveScheme` when the user is still on the modified power plan, flushing the restored AC/DC lid action immediately into the Windows kernel power policy.
+- Added a 30-second retry backoff (`lid_retry_after`) if applying a lid override fails, preventing repeated Win32 power-API thrashing on restricted policies.
+- Cleared stale lid errors, retry backoffs, and lid safety-cap flags cleanly when toggling lid settings or releasing the lid override from Settings.
+- Releasing the lid override from Settings now also disables `lid_proof` and saves settings so the next engine tick does not immediately re-engage it.
+- Released any active lid-close override inside the updater `before_exit` callback so in-place upgrades restore the Windows lid policy before the installer replaces and restarts Ember.
+
+### Agent Detection, Startup Speed, and Hooks
+
+- Ran the first engine tick immediately on startup before sleeping for the loop interval, eliminating the 250 ms startup delay so already-working coding agents engage the OS power hold, window title, overlay indicator, and system tray status at launch.
+- Eliminated phantom holds from abruptly terminated agent processes by tracking process liveness (`pid_seen_alive`), validating process creation timestamps (`pid_birth`) to detect PID reuse, pruning dead and PID-less orphan sessions immediately, and clearing both explicit and PID-synthesized activity cache entries on removal.
+- Prevented CLI coding agents from falling back to shared IDE editor processes (`code.exe`, `electron.exe`, and similar hosts) by separating runtime hosts from IDE hosts during parent-process attribution.
+- Excluded background helper and server processes (`codex app-server`, `codex-code-mode-host`, `codex-computer-use`, `opencode serve`, `opencode-pty`) from false-positive process detection.
+- Bounded cached and silent working turns to a 45-minute safety cap (`MAX_CACHED_WORK_AGE_SECS` / `LIVE_PID_SILENCE_CAP`) so stale state cannot hold a PC awake indefinitely after an unclean crash.
+- Fixed an OpenCode plugin idle-reconciliation loop where repeated `markIdle()` calls could trigger continuous status spam, and added `SIGHUP` / `SIGBREAK` process-exit cleanup handlers to OpenCode, Pi, and Oh My Pi extensions.
+- Guarded `process_start_time()` against zero-FILETIME subtraction panics and hardened Claude Code event-mapping and Codex `commandWindows` hook repair checks.
+
+### Manual Holds, Pause Controls, and Guardrails
+
+- Starting any manual hold (30m, 1h, 2h, Custom, or Until released) while Ember is paused now automatically clears the pause state and engages the hold immediately.
+- Added an in-window Resume action on the Awake screen when Ember is paused from the system tray, and updated the tray status text to distinguish timed pauses ("Paused - resumes in ...") from indefinite pauses ("Paused - until you resume").
+- Fixed conflicting UI state when a manual hold is active alongside Windows Battery Saver or the battery floor guardrail, clearly displaying "Manual hold - paused", "Cancel hold", and a "Paused" status readout instead of conflicting active-hold controls.
+- Replaced the native browser time input in the Custom hold dialog with a custom Ember `HH:MM` input and two-column Hour/Minute picker that matches both light and dark themes.
+
+### User Interface, Themes, and Window Behavior
+
+- Refined dark mode into a balanced smoked-obsidian palette with clear sidebar-to-workspace tonal separation, subtle espresso-charcoal warmth, high-contrast foreground typography, and warm amber accents while keeping light mode crisp and legible.
+- Unified the Agents watching list into a single elevated studio panel while keeping the lower Sessions list clean and lightweight, and added subtle tactile 3D surface bevels and an encapsulated outer bezel around the main workspace shell.
+- Added smooth sliding segmented controls, centered switch geometry, instant zero-remount tab switching across Awake, Agents, and Settings, atomic theme transitions without flash, and slim 4px auto-hiding scrollbars that fade out after 5 seconds of idle time.
+- Adjusted the default first-launch window geometry to 1146 by 715 logical pixels with DPI-aware vertical taskbar clearance so the window opens centered and fully visible on standard and high-DPI displays.
+- Updated the Watch for agents off-state hint copy to remain clear when watching is disabled.
+
+### Verification
+
+- Verified 227 Rust unit tests, real Windows Power Request API integration test (`tests/native_power.rs`), and real Windows lid-close policy and detached crash-recovery watchdog integration test (`tests/native_lid.rs`), along with `cargo clippy --all-targets -- -D warnings` and TypeScript/Vite production builds.
+
+### Upgrade notes
+
+- After updating, open Agents and repair any hooks flagged as needing repair, then restart or reload those agent sessions so updated exit handlers and bindings take effect.
+- The updater public key and GitHub release endpoint are unchanged from v1.0.0 through v1.2.0.
+
 ## [v1.2.0] - 2026-11-13
 
 ### Added
