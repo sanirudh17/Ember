@@ -19,11 +19,11 @@ Ember notices when Claude Code, Codex, OpenCode, Pi, Oh My Pi, Antigravity or Cl
 
 ## Detection and window behavior
 
-Ember also recognizes Antigravity's `agy_acp_server.exe` when launched by GUI clients. Shared ACP transport CPU alone does not earn a hold; session hooks or supported T3/GOAT local session projections report the actual work. Private Antigravity profiles and GOAT stable/nightly homes are supported. Hooks are authoritative: opening a session does not engage a hold, and an explicit idle/end event does not inherit a long live-process grace. Codex interruption is handled as idle (repair existing hooks to install this binding).
+Ember runs its first engine tick immediately on launch so already-working agents engage the OS hold right away. It also recognizes Antigravity's `agy_acp_server.exe` when launched by GUI clients; shared ACP transport CPU and background helper processes (`codex app-server`, `codex-code-mode-host`, `codex-computer-use`, `opencode serve`, `opencode-pty`) never earn a hold on their own. Session hooks or supported T3/GOAT local session projections report the actual work, including private Antigravity profiles and GOAT stable/nightly homes. Hooks are authoritative: opening a session does not engage a hold, an explicit idle/end event releases immediately, abrupt process termination or PID reuse clears the session cleanly, and silent or cached working turns are bounded by a 45-minute safety cap.
 
 Current Cline supports global Windows PowerShell hooks; enable Hooks in Cline after installing the integration. Its fallback for older or disabled hosts remains an estimate, using sustained CPU activity and a short quiet window; it cannot guarantee immediate turn detection during network waits or distinguish every typing burst. Prefer hooks where supported. Toasts follow visible state changes; repeated sounds are throttled separately.
 
-The default window is 1146 by 715 and remembers its geometry and maximized state. Startup waits for the themed frontend to paint. The supplied Ember artwork is used in the app, tray, taskbar, and installer; run `npm run icon` to regenerate sizes without replacing the source artwork.
+The default window is 1146 by 715 logical pixels with DPI-aware taskbar clearance, and it remembers its geometry and maximized state. Startup waits for the themed frontend to paint. The supplied Ember artwork is used in the app, tray, taskbar, and installer; run `npm run icon` to regenerate sizes without replacing the source artwork.
 
 ## Overview
 
@@ -63,16 +63,16 @@ The usual keep-awake tool is a toggle you forget: you turn it on and your laptop
 
 **Closed-lid support**
 
-- **Work with the lid shut.** While a hold is active, closing the lid no longer sleeps the machine. The override is capped, can require the charger, and is always put back.
-- **Crash-proof restore.** The original lid action is recorded before it is changed, and a detached watchdog process reverts it even if Ember is killed mid-hold.
-- **Battery floor and Battery Saver release.** Ember lets go below your chosen battery percentage (10–30 %) and whenever Windows Battery Saver turns on.
+- **Work with the lid shut.** While a hold is active, closing the lid no longer sleeps the machine. The override is capped, can require the charger, flushes immediately back into Windows kernel power policy when restored, and backs off safely if restricted by system policy.
+- **Crash-proof restore.** The original lid action is recorded before it is changed, a detached watchdog process reverts it even if Ember is killed mid-hold, and in-place updates release any active lid override before restarting.
+- **Battery floor and Battery Saver release.** Ember lets go below your chosen battery percentage (10–30 %) and whenever Windows Battery Saver turns on, clearly marking any active manual hold as paused until power conditions recover.
 
 **Control and comfort**
 
-- **Manual hold.** Take the hold yourself for a chosen duration when Ember is not watching an agent — a long build, an upload, a download.
-- **Keep the screen on, or hands off.** Optionally keep the display lit while holding; otherwise your screen follows the Windows power plan while the PC stays awake.
-- **Tray companion.** Launch at login, a toast and chime when Ember takes hold and lets go (mutable), single instance, and a window position reset.
-- **Quiet surface.** Every agent gets a generated monogram tile — never a third-party logo — and the Home tab narrates every decision the engine makes instead of hiding them behind toggles.
+- **Manual hold.** Take the hold yourself with quick presets (`30m`, `1h`, `2h`), a custom duration or `Until HH:MM` time picker, or `Until released`. Manual holds keep both the system and display awake so Windows Modern Standby does not drop unattended builds or renders when the screen blanks, and starting a manual hold automatically resumes Ember if paused.
+- **Keep the screen on, or hands off.** Optionally keep the display lit while holding for agents; otherwise your screen follows the Windows power plan while the PC stays awake via `SystemRequired` and best-effort `ExecutionRequired` power requests, automatically re-asserted across resume, AC/DC, and lid-close events.
+- **Tray companion.** Launch at login, timed or indefinite pause from the tray (with in-window `Resume`), a toast and chime when Ember takes hold and lets go (mutable), single instance, and a window position reset.
+- **Quiet surface.** Smoked-obsidian dark mode and crisp studio light mode with warm amber accents, unified Agents status panel, instant tab switching, auto-hiding scrollbars, and an **Awake** workspace that narrates every decision the engine makes.
 
 **Signed, local-first updates**
 
@@ -100,11 +100,11 @@ Everything between "agent got a prompt" and "PC stays awake" runs as one decisio
         ▼
   the decision ─────────►  "3 coding agents working" → take the hold · last session ends → let go
         │
-        ├─ power requests: system sleep blocked (display optional)
-        └─ lid override: closing the lid stops sleeping — capped, charger-gated, watchdog-restored
+        ├─ power requests: SystemRequired + best-effort ExecutionRequired (DisplayRequired on manual holds or when enabled), re-asserted on resume/AC-DC/lid-close
+        └─ lid override: closing the lid stops sleeping — capped, charger-gated, kernel-flushed on restore, watchdog-restored
 ```
 
-**Why two signals.** Hooks report lifecycle transitions when the host emits them. Process discovery confirms which applications are open, while persisted hook state and supported T3/GOAT session metadata provide restart recovery. CPU is used only for unhooked Cline's approximate working estimate; opening or typing in a hook-supported agent cannot earn a hold from CPU alone. Missing hooks must be installed or repaired rather than hidden behind an unreliable activity guess.
+**Why two signals.** Hooks report lifecycle transitions when the host emits them. Process discovery confirms which applications are open, validates process creation times so abruptly killed processes and reused PIDs clear immediately, and isolates CLI agents from IDE host processes, while persisted hook state and supported T3/GOAT session metadata provide restart recovery. CPU is used only for unhooked Cline's approximate working estimate; opening or typing in a hook-supported agent cannot earn a hold from CPU alone. Missing hooks must be installed or repaired rather than hidden behind an unreliable activity guess.
 
 **Ember is never allowed to break an agent.** Hook commands read their payload from stdin with a bounded budget, write one JSON line to a local named pipe, authenticate with a per-install token, and always exit 0 in roughly 300 ms. A missing pipe, a malformed payload or a timeout is silently ignored.
 
@@ -200,8 +200,10 @@ npm run tauri build
 **Run the test suite**
 
 ```bash
-cd src-tauri && cargo test   # Rust unit tests
-npx tsc --noEmit             # frontend typecheck
+cd src-tauri && cargo test                                        # Rust unit + real Windows Power API tests
+cd src-tauri && cargo test --test native_lid -- --ignored         # opt-in live Windows lid-policy + watchdog restore test
+cd src-tauri && cargo clippy --all-targets -- -D warnings         # lint check
+npx tsc --noEmit                                                  # frontend typecheck
 ```
 
 **Cutting a release (updater signing)**
@@ -209,8 +211,8 @@ npx tsc --noEmit             # frontend typecheck
 Releases are built and signed with the updater key; the workflow drafts the GitHub release with the installer, its `.sig` and `latest.json`. See [`docs/RELEASING.md`](docs/RELEASING.md) for the one-time repository setup and the tag flow, and [`CHANGELOG.md`](CHANGELOG.md) for the release notes that accompany each version.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1   # local dry run
-git tag v1.0.0 && git push origin v1.0.0                              # CI drafts the release
+powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1   # local signed release build
+git tag v1.3.0 && git push origin v1.3.0                              # CI builds, signs, and drafts the release
 ```
 
 ---
@@ -235,19 +237,20 @@ git tag v1.0.0 && git push origin v1.0.0                              # CI draft
 
 ```
 src/                     React + TypeScript frontend (Vite)
-  pages/                 Home (hold status), Agents, Settings
-  components/            TopBar, dialogs, shared UI, generated agent monograms
-  lib/                   store, typed command bindings, formatting
+  pages/                 Home (Awake workspace), Agents, Settings
+  components/            TopBar, CustomHoldDialog, CloseDialog, shared UI, agent icons
+  lib/                   store, appearance, typed command bindings, formatting
 src-tauri/
   src/
-    agents/              the seven agents: registry, process scan, hook installers, hook pipe server
-    engine/              decisions, sessions, manual holds, snapshots
-    power.rs  lid.rs     the hold: power requests and the lid-close override
+    agents/              the seven agents: registry, process scan, activity cache, harness reader, hook installers, hook pipe server
+    engine/              decisions, sessions, manual holds, DST-aware until resolver, snapshots
+    power.rs  lid.rs     the hold: Modern Standby power requests and the lid-close override
+    battery.rs           battery level, AC/DC, Battery Saver, and power-event re-assertion monitor
     watchdog.rs          detached lid-restore watchdog (survives Ember being killed)
     hookclient.rs        the ~300 ms `ember.exe hook …` client agents invoke
-    tray.rs  sound.rs  log.rs  settings.rs  paths.rs
+    tray.rs  sound.rs  log.rs  settings.rs  shell.rs  paths.rs
   icons/                 generated from app-icon.png
-docs/                    AGENT_INTEGRATIONS.md · RELEASING.md
+docs/                    AGENT_INTEGRATIONS.md · AGENT_DETECTION_AUDIT.md · RELEASING.md
 scripts/                 build-release.ps1 · gen-icon.mjs
 ```
 
@@ -281,7 +284,7 @@ Ember is built to be **local-first**. It has no accounts, no telemetry and no an
 ## Troubleshooting
 
 **An agent never shows as Working.**
-Open the **Agents** tab and install hooks for that agent if it says they are missing. Then restart that agent's session once — extensions and plugins load at session start, so a chat that was already running before the install will not pick it up. Process detection keeps the machine awake in the meantime.
+Open the **Agents** tab and install or repair hooks for that agent if it says they are missing or need repair. Then restart that agent's session once — extensions and plugins load at session start, so a chat that was already running before the install will not pick it up. Hook-supported agents require lifecycle hooks (or supported T3/GOAT session metadata) rather than CPU heuristics so opening or typing in an editor never causes false holds.
 
 **The PC still sleeps.**
 Check the battery — Ember lets go below your battery floor and whenever Battery Saver turns on. If the lid is closed on battery and *"Closed-lid hold requires the charger"* is on, the lid override is not applied by design.
@@ -306,6 +309,6 @@ Built with [Tauri](https://v2.tauri.app/). Agent integrations follow each tool's
 
 ### Detection coverage in v1.3.0
 
-Reasoning and tool execution belong to the enclosing turn; finishing one tool is not finishing the turn. Explicit user-question/UI waits suspend a hold when the host exposes those events. Cancellation and session closure cannot be undone by late tool callbacks. See [the agent audit](docs/AGENT_DETECTION_AUDIT.md) for the tested sequences and host-specific limits.
+Reasoning and tool execution belong to the enclosing turn; finishing one tool is not finishing the turn. Explicit user-question/UI waits suspend a hold when the host exposes those events. Cancellation, session closure, and abrupt process termination cannot be undone by late tool callbacks or reused PIDs, and silent or cached working sessions are bounded by a 45-minute safety cap. See [the agent audit](docs/AGENT_DETECTION_AUDIT.md) for the tested sequences and host-specific limits.
 
-After updating, use **Agents > Repair hooks** for existing integrations and restart/reload their host processes. Codex may request normal trust review for changed hooks. Current Cline can use the new global Windows hooks; older or disabled hosts retain approximate fallback. Hosts that do not load lifecycle hooks cannot provide exact turn boundaries. CPU cannot reliably distinguish network-only reasoning, approvals, and Escape. See [the v1.2.0 verification report](docs/RELIABILITY_FOLLOWUP.md) for coverage and native power API proof. On battery-powered Modern Standby devices, Windows may expire power requests; plug in for extended runs. Ember does not block explicit shutdown or Windows safety actions.
+After updating, use **Agents > Repair** for any integration flagged for repair and restart/reload its host process so updated bindings and exit cleanup handlers take effect. Codex may request normal trust review for changed hooks. Current Cline supports global Windows PowerShell hooks; older or disabled hosts retain approximate CPU fallback. Hosts that do not load lifecycle hooks cannot provide exact turn boundaries. Modern Standby power requests are strengthened with `ExecutionRequired` (best-effort), `DisplayRequired` during manual holds, and automatic re-assertion on resume, AC/DC, and lid-close events; on battery-powered Modern Standby devices, Windows may still enforce OEM/OS limits, so plug in for extended unattended runs. Ember does not block explicit shutdown or Windows safety actions.
