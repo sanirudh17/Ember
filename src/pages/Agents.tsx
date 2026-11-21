@@ -127,39 +127,47 @@ export function AgentsPage() {
           </p>
         )}
         {anyDetected ? (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Agent</th>
-                <th>Integration</th>
-                <th>Since</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {snapshot.agents.map((a, index) => (
-                <tr key={a.id} data-rise style={{ "--i": index } as CSSProperties}>
-                  <td>
-                    <span className="agent-cell">
-                      <AgentIcon agent={a.id} monogram={a.monogram} size={20} />
-                      <span className="agent-cell__name">{a.name}</span>
+          <div className="agent-card-list" role="list" aria-label="Watched agents">
+            {snapshot.agents.map((a, index) => {
+              const statusText = !a.detected
+                ? "Not found"
+                : a.installed
+                  ? a.needs_repair
+                    ? "Repair needed"
+                    : "Hooks installed"
+                  : a.supported
+                    ? "Hooks available"
+                    : "Process watch";
+              const statusClass = !a.detected
+                ? "agent-status-pill"
+                : a.installed && a.needs_repair
+                  ? "agent-status-pill is-warn"
+                  : a.installed
+                    ? "agent-status-pill is-installed"
+                    : "agent-status-pill";
+              return (
+                <div
+                  key={a.id}
+                  role="listitem"
+                  className={`agent-card${!a.detected ? " is-absent" : ""}`}
+                  data-rise
+                  style={{ "--i": index } as CSSProperties}
+                >
+                  <span className="agent-cell">
+                    <AgentIcon agent={a.id} monogram={a.monogram} size={20} />
+                    <span className="agent-cell__name">{a.name}</span>
+                  </span>
+                  <span className="agent-card__status">
+                    <span className={statusClass}>
+                      <span className="control-label">{statusText}</span>
                     </span>
-                  </td>
-                  <td>
-                    {!a.detected
-                      ? "Not found"
-                      : a.installed
-                        ? "Hooks installed"
-                        : a.supported
-                          ? "Hooks available"
-                          : "Process watch"}
-                  </td>
-                  <td>
+                  </span>
+                  <span className="agent-card__since">
                     {a.detected && a.last_event_unix
                       ? relativeTime(a.last_event_unix)
                       : "—"}
-                  </td>
-                  <td>
+                  </span>
+                  <div className="agent-card__action">
                     {!a.detected || !a.supported ? null : (
                       <Button
                         size="sm"
@@ -178,11 +186,11 @@ export function AgentsPage() {
                           : "Install hooks"}
                       </Button>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : (
           <p className="empty-line">
             No coding agents found on this machine yet. Install one, then Rescan.

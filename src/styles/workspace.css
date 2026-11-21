@@ -680,3 +680,93 @@
 .page--awake .active-session:hover {
   background: color-mix(in srgb, var(--hover) 65%, transparent);
 }
+
+/* Agents page top list: Test Gemini-style tactile rounded cards (Sessions table below stays plain). */
+.agent-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.agent-card {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.35fr) minmax(135px, 1fr) minmax(64px, 0.55fr) minmax(112px, auto);
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: 11px;
+  box-shadow: var(--card-rim);
+  transition: border-color 120ms ease-out, background-color 120ms ease-out;
+}
+
+.agent-card:hover {
+  border-color: var(--border-strong);
+  background: var(--hover);
+}
+
+.agent-card.is-absent {
+  opacity: 0.62;
+}
+
+.agent-card .agent-cell__name {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.agent-card__status {
+  display: flex;
+  align-items: center;
+}
+
+.agent-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--glass-edge);
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.agent-status-pill.is-installed {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--ink) 16%, var(--glass-edge));
+}
+
+.agent-status-pill.is-warn {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--glass-edge));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+
+.agent-card__since {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.agent-card__action {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 30px;
+  align-items: center;
+}
+
+@media (max-width: 720px) {
+  .agent-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 14px;
+  }
+  .agent-card__since {
+    text-align: left;
+  }
+}
