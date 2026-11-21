@@ -127,7 +127,7 @@ export function AgentsPage() {
           </p>
         )}
         {anyDetected ? (
-          <div className="agent-card-list" role="list" aria-label="Watched agents">
+          <div className="agent-panel" role="list" aria-label="Watched agents">
             {snapshot.agents.map((a, index) => {
               const statusText = !a.detected
                 ? "Not found"
@@ -149,7 +149,7 @@ export function AgentsPage() {
                 <div
                   key={a.id}
                   role="listitem"
-                  className={`agent-card${!a.detected ? " is-absent" : ""}`}
+                  className={`agent-row${!a.detected ? " is-absent" : ""}`}
                   data-rise
                   style={{ "--i": index } as CSSProperties}
                 >
@@ -157,17 +157,17 @@ export function AgentsPage() {
                     <AgentIcon agent={a.id} monogram={a.monogram} size={20} />
                     <span className="agent-cell__name">{a.name}</span>
                   </span>
-                  <span className="agent-card__status">
+                  <span className="agent-row__status">
                     <span className={statusClass}>
                       <span className="control-label">{statusText}</span>
                     </span>
                   </span>
-                  <span className="agent-card__since">
+                  <span className="agent-row__since">
                     {a.detected && a.last_event_unix
                       ? relativeTime(a.last_event_unix)
                       : "—"}
                   </span>
-                  <div className="agent-card__action">
+                  <div className="agent-row__action">
                     {!a.detected || !a.supported ? null : (
                       <Button
                         size="sm"
