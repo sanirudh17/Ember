@@ -423,6 +423,8 @@ impl Engine {
     // -----------------------------------------------------------------------
 
     pub fn start_manual_secs(&mut self, secs: u64) {
+        self.paused = false;
+        self.paused_until_unix = None;
         self.manual.start_secs(self.clock_now(), secs.max(1));
         self.lid_cap_tripped = false;
         self.dirty = true;
@@ -433,6 +435,8 @@ impl Engine {
         let now = chrono::Local::now();
         let target = until::resolve_until(&chrono::Local, &now, hour, minute);
         let secs = target.seconds.max(1) as u64;
+        self.paused = false;
+        self.paused_until_unix = None;
         self.manual.start_until(self.clock_now(), secs);
         self.lid_cap_tripped = false;
         self.dirty = true;
@@ -440,6 +444,8 @@ impl Engine {
     }
 
     pub fn start_manual_unlimited(&mut self) {
+        self.paused = false;
+        self.paused_until_unix = None;
         self.manual.start_unlimited(self.clock_now());
         self.lid_cap_tripped = false;
         self.dirty = true;
@@ -2153,5 +2159,24 @@ mod tests {
         disable.lid_proof = false;
         e.apply_settings(disable);
         assert!(!e.lid_cap_tripped);
+    }
+
+    #[test]
+    fn starting_a_manual_hold_while_paused_unpauses_and_engages() {
+        let mut e = engine();
+        let t0 = Instant::now();
+        freeze_battery(&mut e, t0);
+        e.pause_for(1800);
+        let paused = e.tick(t0);
+        assert!(paused.snapshot.paused);
+        assert!(!paused.snapshot.engaged);
+
+        e.start_manual_secs(1800);
+        let t1 = t0 + Duration::from_secs(1);
+        freeze_battery(&mut e, t1);
+        let held = e.tick(t1);
+        assert!(!held.snapshot.paused);
+        assert!(held.snapshot.manual.active);
+        assert!(held.snapshot.engaged);
     }
 }

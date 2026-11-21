@@ -150,9 +150,13 @@ export function HomePage({ onViewAgents }: { onViewAgents: () => void }) {
 
       </div>
       <div className="hold-toolbar">
-        <span className="hold-toolbar__label">{manualPaused ? "Manual hold · paused" : "Manual hold"}</span>
+        <span className="hold-toolbar__label">
+          {snapshot.paused ? "Ember · paused" : manualPaused ? "Manual hold · paused" : "Manual hold"}
+        </span>
         <div className="actions">
-          {manualPaused ? <>
+          {snapshot.paused ? <>
+            <Button variant="primary" disabled={busy} onClick={() => run(() => api.setPaused(false))}>Resume</Button>
+          </> : manualPaused ? <>
             <Button disabled={busy} onClick={() => run(() => api.stopManual())}>Cancel hold</Button>
           </> : snapshot.manual.active ? <>
             <Button variant="primary" disabled={busy} onClick={() => run(() => api.stopManual())}>End hold</Button>

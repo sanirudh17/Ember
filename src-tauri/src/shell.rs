@@ -321,8 +321,6 @@ pub fn spawn_loop(app: AppHandle, window: WebviewWindow) {
             let mut last_saved = Instant::now();
 
             loop {
-                std::thread::sleep(LOOP_INTERVAL);
-
                 let (outcome, settings) = {
                     let mut engine = match ember.engine.lock() {
                         Ok(guard) => guard,
@@ -412,6 +410,8 @@ pub fn spawn_loop(app: AppHandle, window: WebviewWindow) {
                         let _ = engine.settings.save();
                     }
                 }
+
+                std::thread::sleep(LOOP_INTERVAL);
             }
         });
 }

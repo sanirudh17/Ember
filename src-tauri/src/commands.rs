@@ -449,6 +449,7 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
 
     if let Some(update) = found {
         let progress_app = app.clone();
+        let cleanup_app = app.clone();
         update
             .download_and_install(
                 move |chunk, total| {
@@ -460,7 +461,13 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
                         },
                     );
                 },
-                || {},
+                move || {
+                    if let Some(state) = cleanup_app.try_state::<Ember>()
+                        && let Ok(mut engine) = state.engine.lock()
+                    {
+                        engine.release_lid_now();
+                    }
+                },
             )
             .await
             .map_err(|e| update_install_note(&e))?;

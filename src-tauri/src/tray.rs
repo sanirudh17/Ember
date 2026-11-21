@@ -183,13 +183,10 @@ pub fn refresh(_app: &AppHandle, snapshot: &Snapshot) {
 /// tested without a live Tauri app.
 fn status_text(snapshot: &Snapshot) -> String {
     if snapshot.paused {
-        format!(
-            "Paused — resumes in {}",
-            snapshot
-                .paused_countdown
-                .clone()
-                .unwrap_or_else(|| "a moment".into())
-        )
+        match snapshot.paused_countdown.as_deref() {
+            Some(countdown) => format!("Paused — resumes in {countdown}"),
+            None => "Paused — until you resume".to_string(),
+        }
     } else if snapshot.engaged {
         "Holding — this PC stays awake".to_string()
     } else if !snapshot.watching {
@@ -248,6 +245,6 @@ mod tests {
             paused_countdown: None,
             ..Snapshot::default()
         };
-        assert_eq!(status_text(&no_timer), "Paused — resumes in a moment");
+        assert_eq!(status_text(&no_timer), "Paused — until you resume");
     }
 }
